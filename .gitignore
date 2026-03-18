@@ -18,3 +18,5 @@ Thumbs.db
 # Python/Compiled files
 *.pyc
 __pycache__/
+BUILD
+mbed-os
