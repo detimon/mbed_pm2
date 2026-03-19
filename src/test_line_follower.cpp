@@ -15,7 +15,7 @@ static constexpr float MAX_VEL_RPS    = 2.0f;    // max motor velocity [RPS]
 // ---------------------------------------------------------------------------
 // DCMotor parameters — check your motor datasheet
 // ---------------------------------------------------------------------------
-static constexpr float GEAR_RATIO     = 100f; // gearbox ratio
+static constexpr float GEAR_RATIO     = 100.0f; // gearbox ratio
 static constexpr float KN             = 180.0f;  // motor constant [rpm/V]
 static constexpr float VOLTAGE_MAX    = 11.1f;   // supply voltage [V]
 
