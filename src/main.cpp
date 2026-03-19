@@ -1,6 +1,8 @@
 #include "mbed.h"
 #include "PESBoardPinMap.h"
 #include "DebounceIn.h"
+#include "ColorSensor.h"
+
 
 // === SELECT ACTIVE TEST (edit test_config.h) ===
 
@@ -50,8 +52,11 @@
 bool do_execute_main_task = false;
 bool do_reset_all_once    = false;
 
-DebounceIn user_button(BUTTON1);
-void toggle_do_execute_main_fcn();
+// objects for user button (blue button) handling on nucleo board
+DebounceIn user_button(BUTTON1);   // create DebounceIn to evaluate the user button
+void toggle_do_execute_main_fcn(); // custom function which is getting executed when user
+                                   // button gets pressed, definition at the end
+
 
 int main()
 {
