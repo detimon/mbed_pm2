@@ -52,11 +52,8 @@
 bool do_execute_main_task = false;
 bool do_reset_all_once    = false;
 
-// objects for user button (blue button) handling on nucleo board
-DebounceIn user_button(BUTTON1);   // create DebounceIn to evaluate the user button
-void toggle_do_execute_main_fcn(); // custom function which is getting executed when user
-                                   // button gets pressed, definition at the end
-
+DebounceIn user_button(BUTTON1);
+void toggle_do_execute_main_fcn();
 
 int main()
 {
@@ -67,6 +64,16 @@ int main()
 
     DigitalOut user_led(LED1);
     DigitalOut led1(PB_9);
+
+  // color sensor
+    float color_raw_Hz[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // define an array to store the measurement of the color sensor (in Hz)
+    float color_avg_Hz[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // define an array to store the average measurement of the color sensor (in Hz)
+    float color_cal[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // define an array to store the calibrated measurement of the color sensor
+    
+    int color_num = 0.0f; // define a variable to store the color number, e.g. 0 for red, 1 for green, 2 for blue, 3 for clear
+    const char* color_string; // define a variable to store the color string, e.g. "red", "green", "blue", "clear"
+    ColorSensor Color_Sensor(PB_14, PH_0, PA_4, PB_0, PC_1, PC_0); // create ColorSensor object, connect the frequency output pin of the sensor to SOMETHING THAT SUPPORTS pwmIn
+
 
     const int loops_per_second = static_cast<int>(
         ceilf(1.0f / (0.001f * static_cast<float>(main_task_period_ms))));
