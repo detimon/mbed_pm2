@@ -27,3 +27,6 @@ Thumbs.db
 *.pyc
 __pycache__/
 >>>>>>> 82ec9ab805a491f488dbf7352bcaa5bb2a304019
+mbed-servo
+mbed-os
+debouncein
