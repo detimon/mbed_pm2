@@ -27,6 +27,14 @@
     #define TEST_RESET(led)   color_sensor_calib_reset(led)
     #define TEST_PRINT()      color_sensor_calib_print()
 
+#elif defined(TEST_LINE_FOLLOWER)
+    #include "test_line_follower.h"
+    #define TEST_INIT(lps)  line_follower_init(lps)
+    #define TEST_TASK(led)  line_follower_task(led)
+    #define TEST_RESET(led) line_follower_reset(led)
+    #define TEST_PRINT()    line_follower_print()
+
+
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
 #endif

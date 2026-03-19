@@ -4,4 +4,6 @@
 // #define TEST_SERVO
 //#define TEST_COLOR_SENSOR
 #define TEST_COLOR_SENSOR_CALIB
+
+//#define TEST_LINE_FOLLOWER
 // ==========================================
