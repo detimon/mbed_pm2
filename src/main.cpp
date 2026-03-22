@@ -48,6 +48,27 @@
     #define TEST_RESET(led) line_follower_fast_reset(led)
     #define TEST_PRINT()    line_follower_fast_print()
 
+#elif defined(TEST_SERVO_ALL)
+    #include "test_servo_all.h"
+    #define TEST_INIT(lps)    servo_all_init(lps)
+    #define TEST_TASK(led)    servo_all_task(led)
+    #define TEST_RESET(led)   servo_all_reset(led)
+    #define TEST_PRINT()      servo_all_print()
+
+#elif defined(TEST_SERVO_CALIB)
+    #include "test_servo_calib.h"
+    #define TEST_INIT(lps)    servo_calib_init(lps)
+    #define TEST_TASK(led)    servo_calib_task(led)
+    #define TEST_RESET(led)   servo_calib_reset(led)
+    #define TEST_PRINT()      servo_calib_print()
+
+#elif defined(TEST_IR)
+    #include "test_ir.h"
+    #define TEST_INIT(lps)    ir_init(lps)
+    #define TEST_TASK(led)    ir_task(led)
+    #define TEST_RESET(led)   ir_reset(led)
+    #define TEST_PRINT()      ir_print()
+
 #elif defined(TEST_DC_MOTOR)
     #include "test_dc_motor.h"
     #define TEST_INIT(lps)    dc_motor_init(lps)

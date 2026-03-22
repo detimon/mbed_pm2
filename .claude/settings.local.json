@@ -9,7 +9,13 @@
       "WebFetch(domain:github.com)",
       "Bash(curl -s \"https://raw.githubusercontent.com/pichim/PM2_PES_Board_Example/main/lib/SensorBar/SensorBar.h\")",
       "Bash(mbed-tools compile:*)",
-      "Bash(mbed compile:*)"
+      "Bash(mbed compile:*)",
+      "Bash(claude --version)",
+      "Bash(find C:Usersalexa.claudepluginsmarketplacesclaude-plugins-official -name *hook* -type f)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ]
   }
 }

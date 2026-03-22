@@ -1,0 +1,41 @@
+================================================================
+  mbed_pm — Session-Hilfe
+================================================================
+
+FALLS DU /sesh-end VERGESSEN HAST:
+------------------------------------
+Einfach in der neuen Session schreiben:
+  "lies CLAUDE.md"
+Claude liest dann die Datei und weiss sofort wo ihr seid.
+
+FALLS CLAUDE DEN KONTEXT VERLOREN HAT:
+----------------------------------------
+Schreibe:
+  "lies CLAUDE.md"
+Das reicht. Claude findet dort:
+  - Aktueller Stand (was zuletzt gemacht wurde)
+  - Naechste Schritte (was als erstes dran ist)
+  - Alle Pins und Komponenten
+  - Alle Regeln und Verbote
+
+NEUES TEST-MODUL ERSTELLEN (/new-test):
+-----------------------------------------
+Wenn du ein neues Test-Modul brauchst (z.B. fuer Servo + IR zusammen),
+schreibe einfach:
+  /new-test servo_ir
+  (oder ein anderer Name in kleinen Buchstaben mit Unterstrich)
+
+Claude erstellt dann automatisch:
+  - src/test_servo_ir.h    (Header mit den 4 Funktions-Deklarationen)
+  - src/test_servo_ir.cpp  (Implementierung mit richtigem Grundgeruest)
+
+Und zeigt dir welche 2 Stellen du noch anpassen musst:
+  1. src/test_config.h  (eine Zeile hinzufuegen)
+  2. src/main.cpp       (einen kleinen Block hinzufuegen)
+
+NORMALE SESSION-ROUTINE:
+--------------------------
+  Session-Ende:   /sesh-end eingeben
+  Session-Start:  einfach loslegen, Claude liest CLAUDE.md automatisch
+
+================================================================
