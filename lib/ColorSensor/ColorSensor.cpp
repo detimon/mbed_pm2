@@ -13,11 +13,11 @@
  * Sets a default filter and scaling, loads calibration references, then starts the worker thread.
  */
 ColorSensor::ColorSensor(PinName pin) : m_PwmIn(pin),
-                                        m_Led(COLOR_SENSOR_LED, 0),
                                         m_S0(COLOR_SENSOR_S0, 0),
                                         m_S1(COLOR_SENSOR_S1, 0),
                                         m_S2(COLOR_SENSOR_S2, 0),
                                         m_S3(COLOR_SENSOR_S3, 0),
+                                        m_Led(COLOR_SENSOR_LED, 0),
                                         m_Thread(osPriorityLow),
                                         m_AvgFilter{AvgFilter(N_FILTER), AvgFilter(N_FILTER), AvgFilter(N_FILTER), AvgFilter(N_FILTER)}
 {
@@ -38,11 +38,11 @@ ColorSensor::ColorSensor(PinName pin) : m_PwmIn(pin),
  * Uses a shorter averaging window by default (faster response, less smoothing).
  */
 ColorSensor::ColorSensor(PinName pin, PinName led, PinName s0, PinName s1, PinName s2, PinName s3) : m_PwmIn(pin),
-                                                                                        m_Led(led, 0),
                                                                                         m_S0(s0, 0),
                                                                                         m_S1(s1, 0),
                                                                                         m_S2(s2, 0),
                                                                                         m_S3(s3, 0),
+                                                                                        m_Led(led, 0),
                                                                                         m_Thread(osPriorityLow),
                                                                                         m_AvgFilter{AvgFilter(N_FILTER), AvgFilter(N_FILTER), AvgFilter(N_FILTER), AvgFilter(N_FILTER)}
 {
