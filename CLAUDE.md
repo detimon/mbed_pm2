@@ -2,7 +2,7 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._
-- **Zuletzt:** Popup-System vollständig ausgebaut — alle drei Popups mit Aktivitätserkennung, Stimme und Auto-Dismiss (2026-03-23)
+- **Zuletzt:** Popup-Test-Suite `test_popups.ps1` erstellt — 9 automatisierte Tests für alle Popup-Funktionen (2026-03-23)
 - **Grün:** bleibt bis Mausbewegung/Tastendruck; Stimme sofort + nach 20s + nach 40s; kein Timeout
 - **Orange:** blinkt DarkOrange↔SaddleBrown (600ms); Stimme alle 5s; schliesst sofort nach Bestätigung (PostToolUse-Hook löscht Flag-File); Stimme spricht zu Ende nach Dismiss
 - **Violett:** verschwindet bei Maus/Tastatur; Stimme spricht zu Ende; 4s Timeout
@@ -87,7 +87,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. `TEST_SERVO_CALIB` ist bereits aktiv → Flashen, Serial Monitor öffnen (115200 baud), alle 3 Servos kalibrieren (`+`/`-`/`c`/`f`), dann die ausgegebenen `calibratePulseMinMax()`-Werte in `src/test_servo_all.cpp` eintragen
+1. `TEST_SERVO_CALIB` flashen → Serial Monitor öffnen (115200 baud), alle 3 Servos kalibrieren (`+`/`-`/`c`/`f`), Werte in `src/test_servo_all.cpp` eintragen
 2. `TEST_SERVO_ALL` aktivieren → alle 3 Servos zusammen testen und Bewegung verifizieren
 3. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung mit `setCalibration(a, b)` bestimmen
 4. Hauptprogramm schreiben: State Machine aus Line-Follower + Servo + IR-Sensor
