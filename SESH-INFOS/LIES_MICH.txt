@@ -33,6 +33,18 @@ Und zeigt dir welche 2 Stellen du noch anpassen musst:
   1. src/test_config.h  (eine Zeile hinzufuegen)
   2. src/main.cpp       (einen kleinen Block hinzufuegen)
 
+POPUPS EIN-/AUSSCHALTEN (/popups):
+-------------------------------------
+Die farbigen Benachrichtigungs-Popups (gruen/orange/violett) koennen
+jederzeit mit einem Befehl umgeschaltet werden:
+  /popups
+Claude antwortet dann entweder:
+  "Popups aktiviert."   → Popups erscheinen wieder
+  "Popups deaktiviert." → Popups werden unterdrueckt
+
+Der Zustand bleibt gespeichert bis zum naechsten /popups Aufruf.
+Funktioniert auch mitten in einer Session.
+
 NORMALE SESSION-ROUTINE:
 --------------------------
   Session-Ende:   /sesh-end eingeben

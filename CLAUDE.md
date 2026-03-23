@@ -2,8 +2,8 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._
-- **Zuletzt:** `-Wreorder` Warnings in `ColorSensor.cpp` gefixt — 0 Problems (2026-03-23)
-- **Fix:** Initialisierungsreihenfolge in beiden ColorSensor-Konstruktoren korrigiert (`m_S0`-`m_S3` vor `m_Led`), damit sie der Deklarationsreihenfolge im Header entspricht — kein Verhaltensunterschied
+- **Zuletzt:** Popup-Hook-Fix — oranges Popup feuert jetzt bei allen Bestätigungsanfragen (2026-03-23)
+- **Fix:** `PreToolUse(AskUserQuestion)`-Hook in `~/.claude/settings.json` ersetzt durch `PermissionRequest`-Hook (kein Matcher) → orange Popup kommt jetzt bei jeder Tool-Bestätigungsanfrage (Bash, Edit, Write, etc.), nicht nur bei `AskUserQuestion`
 - **mbed:** Kein neuer Funktionscode — `TEST_SERVO_CALIB` ist aktiv, bereit zum Flashen in der Werkstatt
 - **Offen:** Noch keine Hardware-Tests durchgeführt (nicht in der Werkstatt)
 
@@ -59,6 +59,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 | —   | PC_0      | Farbsensor – S3 |
 
 ## Aktive Entscheidungen
+- `/popups`-Befehl toggled Popups via Flag-Datei `C:\Users\alexa\.claude\popups_disabled` — kein settings.json-Edit nötig
+- Oranges Popup via `PermissionRequest`-Hook (kein Matcher) in `~/.claude/settings.json` — feuert bei jeder Tool-Bestätigungsanfrage
 - `TEST_SERVO_CALIB` ist aktuell aktiv in `test_config.h` (bereit für Werkstatt-Kalibrierung)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
