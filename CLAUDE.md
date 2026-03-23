@@ -2,10 +2,9 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._
-- **Zuletzt:** Claude Code Hooks poliert — Popups + Stimme fertig konfiguriert (2026-03-22)
-- **mbed:** Kein neuer Code — `TEST_SERVO_CALIB` ist aktiv, bereit zum Flashen in der Werkstatt
-- **Hooks fertig:** Violett "vibe coding..." beim Laden, Orange "input required" bei AskUserQuestion, Grün "done vibe coding" bei Stop — alle mit weiblicher SAPI-Stimme (Rate=0, Natural-Voice), 5s, korrekt positioniert (`StartPosition = 'Manual'`)
-- **Popup-Positionen:** Grün = Bildschirmmitte, Orange/Violett = horizontal zentriert, ¼ von oben
+- **Zuletzt:** `-Wreorder` Warnings in `ColorSensor.cpp` gefixt — 0 Problems (2026-03-23)
+- **Fix:** Initialisierungsreihenfolge in beiden ColorSensor-Konstruktoren korrigiert (`m_S0`-`m_S3` vor `m_Led`), damit sie der Deklarationsreihenfolge im Header entspricht — kein Verhaltensunterschied
+- **mbed:** Kein neuer Funktionscode — `TEST_SERVO_CALIB` ist aktiv, bereit zum Flashen in der Werkstatt
 - **Offen:** Noch keine Hardware-Tests durchgeführt (nicht in der Werkstatt)
 
 ## Stack
