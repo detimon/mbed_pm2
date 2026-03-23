@@ -2,8 +2,11 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._
-- **Zuletzt:** Popup-Hook-Fix — oranges Popup feuert jetzt bei allen Bestätigungsanfragen (2026-03-23)
-- **Fix:** `PreToolUse(AskUserQuestion)`-Hook in `~/.claude/settings.json` ersetzt durch `PermissionRequest`-Hook (kein Matcher) → orange Popup kommt jetzt bei jeder Tool-Bestätigungsanfrage (Bash, Edit, Write, etc.), nicht nur bei `AskUserQuestion`
+- **Zuletzt:** Popup-System vollständig ausgebaut — alle drei Popups mit Aktivitätserkennung, Stimme und Auto-Dismiss (2026-03-23)
+- **Grün:** bleibt bis Mausbewegung/Tastendruck; Stimme sofort + nach 20s + nach 40s; kein Timeout
+- **Orange:** blinkt DarkOrange↔SaddleBrown (600ms); Stimme alle 5s; schliesst sofort nach Bestätigung (PostToolUse-Hook löscht Flag-File); Stimme spricht zu Ende nach Dismiss
+- **Violett:** verschwindet bei Maus/Tastatur; Stimme spricht zu Ende; 4s Timeout
+- **VSCode-Fokus:** `focus_vscode.ps1` via `AttachThreadInput` — bringt VSCode bei PermissionRequest und Stop in Vordergrund ohne Vollbild zu verlassen
 - **mbed:** Kein neuer Funktionscode — `TEST_SERVO_CALIB` ist aktiv, bereit zum Flashen in der Werkstatt
 - **Offen:** Noch keine Hardware-Tests durchgeführt (nicht in der Werkstatt)
 
@@ -60,7 +63,12 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 
 ## Aktive Entscheidungen
 - `/popups`-Befehl toggled Popups via Flag-Datei `C:\Users\alexa\.claude\popups_disabled` — kein settings.json-Edit nötig
-- Oranges Popup via `PermissionRequest`-Hook (kein Matcher) in `~/.claude/settings.json` — feuert bei jeder Tool-Bestätigungsanfrage
+- Oranges Popup via `PermissionRequest`-Hook → `permission_request.ps1` (erstellt Flag + fokussiert VSCode + startet Popup)
+- Popup-Dismiss via `PostToolUse`-Hook → `dismiss_orange.ps1` (löscht Flag → Popup schliesst in <100ms)
+- `PreToolUse` feuert VOR der Bestätigung — für Dismiss muss `PostToolUse` verwendet werden
+- Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
+- Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
+- VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
 - `TEST_SERVO_CALIB` ist aktuell aktiv in `test_config.h` (bereit für Werkstatt-Kalibrierung)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
