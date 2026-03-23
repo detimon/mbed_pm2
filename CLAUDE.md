@@ -2,11 +2,10 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._
-- **Zuletzt:** Popup-Test-Suite `test_popups.ps1` erstellt — 9 automatisierte Tests für alle Popup-Funktionen (2026-03-23)
-- **Grün:** bleibt bis Mausbewegung/Tastendruck; Stimme sofort + nach 20s + nach 40s; kein Timeout
-- **Orange:** blinkt DarkOrange↔SaddleBrown (600ms); Stimme alle 5s; schliesst sofort nach Bestätigung (PostToolUse-Hook löscht Flag-File); Stimme spricht zu Ende nach Dismiss
-- **Violett:** verschwindet bei Maus/Tastatur; Stimme spricht zu Ende; 4s Timeout
-- **VSCode-Fokus:** `focus_vscode.ps1` via `AttachThreadInput` — bringt VSCode bei PermissionRequest und Stop in Vordergrund ohne Vollbild zu verlassen
+- **Zuletzt:** SSH-Fernzugriff via Tailscale + Termius eingerichtet — PC von Samsung Handy aus steuerbar (2026-03-23)
+- **SSH:** OpenSSH-Server läuft, Firewall offen, Tailscale-IP `100.114.114.94`, Key-Auth funktioniert
+- **Tailscale:** Installiert auf PC + Handy, beide verbunden — funktioniert auch im ZHAW-Netz
+- **authorized_keys:** `C:\ProgramData\ssh\administrators_authorized_keys` (ASCII-Encoding, zwei Keys: PC + Handy)
 - **mbed:** Kein neuer Funktionscode — `TEST_SERVO_CALIB` ist aktiv, bereit zum Flashen in der Werkstatt
 - **Offen:** Noch keine Hardware-Tests durchgeführt (nicht in der Werkstatt)
 
