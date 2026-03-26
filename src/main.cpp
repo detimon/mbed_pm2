@@ -76,6 +76,19 @@
     #define TEST_RESET(led)   dc_motor_reset(led)
     #define TEST_PRINT()      dc_motor_print()
 
+#elif defined(TEST_ALL)
+    #include "test_all.h"
+    #define TEST_INIT(lps)    all_init(lps)
+    #define TEST_TASK(led)    all_task(led)
+    #define TEST_RESET(led)   all_reset(led)
+    #define TEST_PRINT()      all_print()
+
+#elif defined(TEST_ROBOTER_V1)
+    #include "roboter_v1.h"
+    #define TEST_INIT(lps)    roboter_v1_init(lps)
+    #define TEST_TASK(led)    roboter_v1_task(led)
+    #define TEST_RESET(led)   roboter_v1_reset(led)
+    #define TEST_PRINT()      roboter_v1_print()
 
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
@@ -96,7 +109,7 @@ int main()
     Timer main_task_timer;
 
     DigitalOut user_led(LED1);
-#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST)
+#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1)
     // PB_9 = I2C1 SDA for sensor bar — use a different pin to avoid conflict
     DigitalOut led1(PB_10);
 #else

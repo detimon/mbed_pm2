@@ -1,12 +1,12 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._
-- **Zuletzt:** Popup-Sound deaktiviert via `/popupssound` — Flag-Datei `C:\Users\alexa\.claude\sound_disabled` existiert (2026-03-23)
-- **Popups:** Alle drei Scripts (green, orange, loading) prüfen `sound_disabled`-Flag vor jedem Speak-Aufruf; Sound aktuell AUS
-- **Modell:** Noch auf `sonnet` — nach Opus-Reset zurückwechseln auf `opus[1m]` in `~/.claude/settings.json`
-- **mbed:** Kein neuer Funktionscode — `TEST_SERVO_CALIB` ist aktiv, bereit zum Flashen in der Werkstatt
-- **Offen:** Noch keine Hardware-Tests durchgeführt (nicht in der Werkstatt)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-03-26)
+- **Aktiv:** `TEST_ROBOTER_V1` in `test_config.h`
+- **Funktioniert:** BLIND → TURNING (60 Loops, TURN_SPEED=1.0/TURN_INNER=0.3) → REACQUIRE (0.4 RPS, wartet auf b3+b4) → FOLLOW (LineFollower, FOLLOW_SPEED=0.8, kein isLedActive-Check) — Roboter fährt die ganze Strecke ohne Linie zu verlieren
+- **Problem offen:** STATE_STRAIGHT funktioniert nicht — `getAngleRadians()` taugt nicht zur Geraden-Erkennung: Winkel ist auch auf der Geraden zu gross (> 0.10–0.20 rad) oder schwankt zu stark. Alle Ansätze (Winkel-basiert, Counter-basiert, FOLLOW_MIN_LOOPS) schlugen fehl.
+- **Aktueller Code:** Hat STATE_STRAIGHT mit FOLLOW_MIN_LOOPS=75 + STRAIGHT_ENTER_ANGLE=0.20f + STRAIGHT_ENTER_LOOPS=8 — noch nicht getestet ob diese Version die Gerade erkennt
+- **Servo-Kalibrierung:** Abgeschlossen (2026-03-26) — Werte in `test_servo_all.cpp` eingetragen: A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 
 ## Stack
 - Sprache: C++14
@@ -69,7 +69,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_SERVO_CALIB` ist aktuell aktiv in `test_config.h` (bereit für Werkstatt-Kalibrierung)
+- `TEST_ROBOTER_V1` ist aktuell aktiv in `test_config.h`
+- Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
 - `TEST_LINE_FOLLOWER_FAST` ist stabil und funktioniert (Commit 183603b) — nicht anfassen
@@ -87,13 +88,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. `TEST_SERVO_CALIB` flashen → Serial Monitor öffnen (115200 baud), alle 3 Servos kalibrieren (`+`/`-`/`c`/`f`), Werte in `src/test_servo_all.cpp` eintragen
-2. `TEST_SERVO_ALL` aktivieren → alle 3 Servos zusammen testen und Bewegung verifizieren
-3. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung mit `setCalibration(a, b)` bestimmen
-4. Hauptprogramm schreiben: State Machine aus Line-Follower + Servo + IR-Sensor
+1. `roboter_v1` — Gerade-Erkennung reparieren: Serial-Output (`a=` Winkel-Wert) auf der Geraden beobachten und prüfen ob `getAngleRadians()` dort tatsächlich unter 0.20 rad bleibt; falls nicht, alternativen Ansatz via Sensor-Zählung (`getAvgBit(0)` und `getAvgBit(7)` beide inaktiv = Gerade) probieren statt Winkel
+2. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung bestimmen
+3. Hauptprogramm: IR-Sensor + Servo in State Machine integrieren
 
 ## Offene Fragen
 - Wie sieht die finale State Machine des Hauptprogramms aus?
+- Ist `getAngleRadians()` auf der Geraden tatsächlich nahe 0? → Serial-Monitor Wert ablesen und entscheiden ob Winkel- oder Sensor-basierte Geraden-Erkennung besser ist
+- Reicht `getAvgBit(0) < 0.5 && getAvgBit(7) < 0.5` als Geraden-Indikator?
 
 ## Session-Routine
 Am Ende jeder Session:
