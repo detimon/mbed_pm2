@@ -1,11 +1,13 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-03-26)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-03-28)
 - **Aktiv:** `TEST_ROBOTER_V1` in `test_config.h`
-- **Funktioniert:** BLIND → TURNING (60 Loops, TURN_SPEED=1.0/TURN_INNER=0.3) → REACQUIRE (0.4 RPS, wartet auf b3+b4) → FOLLOW (LineFollower, FOLLOW_SPEED=0.8, kein isLedActive-Check) — Roboter fährt die ganze Strecke ohne Linie zu verlieren
-- **Problem offen:** STATE_STRAIGHT funktioniert nicht — `getAngleRadians()` taugt nicht zur Geraden-Erkennung: Winkel ist auch auf der Geraden zu gross (> 0.10–0.20 rad) oder schwankt zu stark. Alle Ansätze (Winkel-basiert, Counter-basiert, FOLLOW_MIN_LOOPS) schlugen fehl.
-- **Aktueller Code:** Hat STATE_STRAIGHT mit FOLLOW_MIN_LOOPS=75 + STRAIGHT_ENTER_ANGLE=0.20f + STRAIGHT_ENTER_LOOPS=8 — noch nicht getestet ob diese Version die Gerade erkennt
+- **State Machine vollständig implementiert:** BLIND → TURNING → REACQUIRE → FOLLOW ↔ BACKWARD ↔ PAUSE (×6) → FINAL_STOP (5s) → FOLLOW forever
+- **Correction trigger:** b2+b3+b4 gleichzeitig aktiv → BACKWARD (max 6×, danach nie mehr)
+- **Final Stop:** Nach 6. Zyklus FOLLOW mit m_repeat_ctr==0, wartet auf all_sensors_active() → FINAL_STOP 5s → FOLLOW forever (m_repeat_ctr=-1, kein weiteres Triggern)
+- **Aktuell stabile Konstanten:** KP=2.8, KP_NL=4.55, MAX_SPEED=1.0, FOLLOW_LEFT_BIAS=0.30f, BACKWARD_ANGLE_KP=0.6f (Vorzeichen GEFLIPPT), BACKWARD_LEFT_BIAS=0.10f, TURN_LOOPS=80
+- **Noch in Tuning:** BACKWARD_ANGLE_KP — 0.6f funktioniert, 0.75f verliert die Linie; optimaler Wert noch nicht gefunden (Sweetspot zwischen 0.6f und 0.75f)
 - **Servo-Kalibrierung:** Abgeschlossen (2026-03-26) — Werte in `test_servo_all.cpp` eingetragen: A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 
 ## Stack
@@ -88,14 +90,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. `roboter_v1` — Gerade-Erkennung reparieren: Serial-Output (`a=` Winkel-Wert) auf der Geraden beobachten und prüfen ob `getAngleRadians()` dort tatsächlich unter 0.20 rad bleibt; falls nicht, alternativen Ansatz via Sensor-Zählung (`getAvgBit(0)` und `getAvgBit(7)` beide inaktiv = Gerade) probieren statt Winkel
+1. `roboter_v1` BACKWARD_ANGLE_KP feintunen: aktuell 0.6f (stabil) vs 0.75f (verliert Linie) — nächsten Wert 0.65f testen, dann 0.70f, bis optimaler Sweetspot gefunden
 2. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung bestimmen
 3. Hauptprogramm: IR-Sensor + Servo in State Machine integrieren
 
 ## Offene Fragen
 - Wie sieht die finale State Machine des Hauptprogramms aus?
-- Ist `getAngleRadians()` auf der Geraden tatsächlich nahe 0? → Serial-Monitor Wert ablesen und entscheiden ob Winkel- oder Sensor-basierte Geraden-Erkennung besser ist
-- Reicht `getAvgBit(0) < 0.5 && getAvgBit(7) < 0.5` als Geraden-Indikator?
+- Optimaler BACKWARD_ANGLE_KP Wert: Sweetspot zwischen 0.6f (zu wenig) und 0.75f (verliert Linie)?
+- Correction trigger b2+b3+b4: Ist das der richtige Punkt auf der Strecke oder muss er angepasst werden?
 
 ## Session-Routine
 Am Ende jeder Session:
