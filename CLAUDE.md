@@ -1,14 +1,14 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-03-28)
-- **Aktiv:** `TEST_ROBOTER_V1` in `test_config.h`
-- **State Machine vollständig implementiert:** BLIND → TURNING → REACQUIRE → FOLLOW ↔ BACKWARD ↔ PAUSE (×6) → FINAL_STOP (5s) → FOLLOW forever
-- **Correction trigger:** b2+b3+b4 gleichzeitig aktiv → BACKWARD (max 6×, danach nie mehr)
-- **Final Stop:** Nach 6. Zyklus FOLLOW mit m_repeat_ctr==0, wartet auf all_sensors_active() → FINAL_STOP 5s → FOLLOW forever (m_repeat_ctr=-1, kein weiteres Triggern)
-- **Aktuell stabile Konstanten:** KP=2.8, KP_NL=4.55, MAX_SPEED=1.0, FOLLOW_LEFT_BIAS=0.30f, BACKWARD_ANGLE_KP=0.6f (Vorzeichen GEFLIPPT), BACKWARD_LEFT_BIAS=0.10f, TURN_LOOPS=80
-- **Noch in Tuning:** BACKWARD_ANGLE_KP — 0.6f funktioniert, 0.75f verliert die Linie; optimaler Wert noch nicht gefunden (Sweetspot zwischen 0.6f und 0.75f)
-- **Servo-Kalibrierung:** Abgeschlossen (2026-03-26) — Werte in `test_servo_all.cpp` eingetragen: A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-07)
+- **Aktiv:** `TEST_ROBOTER_V2` in `test_config.h` (`roboter_v1` bleibt unberührt als Backup)
+- **roboter_v2 State Machine:** BLIND → STRAIGHT (1.7s) → TURN_SPOT (Pirouette) → FOLLOW (pure FAST) mit 4× 5s-Stop auf Querlinien → FOLLOW forever
+- **Stop-Logik:** `m_stop_remaining=4` nach TURN_SPOT; erster Stop (schräger Eingang) triggert auf `isLedActive()`, die 3 weiteren auf `all_sensors_active()`; nach 4. Stop: kein weiterer Stop
+- **Guard:** 1.5s (75 Loops) nach jedem Stop — verhindert Sofort-Retrigger auf gleicher Querlinie
+- **Pivot-Drehung:** M1 vorwärts, M2 rückwärts (VEL_SIGN*+0.5f / VEL_SIGN*-0.5f) → dreht rechts auf der Stelle; endet wenn b3 oder b4 aktiv
+- **Stabile Konstanten übernommen aus v1:** KP=2.8, KP_NL=4.55, MAX_SPEED=1.0, BLIND_SPEED=1.0, STRAIGHT_SPEED=1.0, TURN_SPEED=0.5
+- **roboter_v1** bleibt in `src/roboter_v1.cpp` vollständig erhalten (auskommentiert in test_config.h)
 
 ## Stack
 - Sprache: C++14
@@ -71,7 +71,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ROBOTER_V1` ist aktuell aktiv in `test_config.h`
+- `TEST_ROBOTER_V2` ist aktuell aktiv in `test_config.h` (v1 auskommentiert, als Backup erhalten)
+- roboter_v2 Stop-Trigger: erster Crossing = `isLedActive()` (schräger Eingang), weitere 3 = `all_sensors_active()`; Guard 75 Loops nach jedem Stop
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
@@ -90,14 +91,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. `roboter_v1` BACKWARD_ANGLE_KP feintunen: aktuell 0.6f (stabil) vs 0.75f (verliert Linie) — nächsten Wert 0.65f testen, dann 0.70f, bis optimaler Sweetspot gefunden
+1. `roboter_v2` auf der Strecke testen: Stop-Trigger für ersten Crossing (`isLedActive`) und die 3 normalen (`all_sensors_active`) verifizieren — falls Guard zu kurz (Sofort-Retrigger), `STOP_GUARD` in `roboter_v2.cpp:32` erhöhen; falls Pivot-Richtung falsch, Vorzeichen in `STATE_TURN_SPOT` tauschen
 2. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung bestimmen
-3. Hauptprogramm: IR-Sensor + Servo in State Machine integrieren
+3. Hauptprogramm: IR-Sensor + Servo in roboter_v2 State Machine integrieren
 
 ## Offene Fragen
-- Wie sieht die finale State Machine des Hauptprogramms aus?
-- Optimaler BACKWARD_ANGLE_KP Wert: Sweetspot zwischen 0.6f (zu wenig) und 0.75f (verliert Linie)?
-- Correction trigger b2+b3+b4: Ist das der richtige Punkt auf der Strecke oder muss er angepasst werden?
+- Stimmt die Pivot-Drehrichtung in STATE_TURN_SPOT? (M1 vor / M2 zurück = dreht rechts — je nach Strecke evtl. links drehen nötig)
+- Reicht `isLedActive()` als Trigger für den ersten (schrägen) Crossing, oder braucht es eine spezifischere Bedingung?
+- Wie sieht die finale Integration von IR-Sensor + Servo in roboter_v2 aus?
 
 ## Session-Routine
 Am Ende jeder Session:
