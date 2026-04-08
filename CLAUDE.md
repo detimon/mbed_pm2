@@ -1,14 +1,15 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-07)
-- **Aktiv:** `TEST_ROBOTER_V2` in `test_config.h` (`roboter_v1` bleibt unberührt als Backup)
-- **roboter_v2 State Machine:** BLIND → STRAIGHT (1.7s) → TURN_SPOT (Pirouette) → FOLLOW (pure FAST) mit 4× 5s-Stop auf Querlinien → FOLLOW forever
-- **Stop-Logik:** `m_stop_remaining=4` nach TURN_SPOT; erster Stop (schräger Eingang) triggert auf `isLedActive()`, die 3 weiteren auf `all_sensors_active()`; nach 4. Stop: kein weiterer Stop
-- **Guard:** 1.5s (75 Loops) nach jedem Stop — verhindert Sofort-Retrigger auf gleicher Querlinie
-- **Pivot-Drehung:** M1 vorwärts, M2 rückwärts (VEL_SIGN*+0.5f / VEL_SIGN*-0.5f) → dreht rechts auf der Stelle; endet wenn b3 oder b4 aktiv
-- **Stabile Konstanten übernommen aus v1:** KP=2.8, KP_NL=4.55, MAX_SPEED=1.0, BLIND_SPEED=1.0, STRAIGHT_SPEED=1.0, TURN_SPEED=0.5
-- **roboter_v1** bleibt in `src/roboter_v1.cpp` vollständig erhalten (auskommentiert in test_config.h)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-08)
+- **Aktiv:** `TEST_ROBOTER_V3` in `test_config.h` (v1+v2 als Backup erhalten)
+- **roboter_v3 State Machine (getestet, funktioniert):**
+  - Intro: BLIND → STRAIGHT(1.7s) → TURN_SPOT → FOLLOW → FOLLOW_1S(1s) → BRAKE(0.24s smooth) → PAUSE(0.4s) → BACKWARD(3.9s, smooth accel 0.24s, rapid stop)
+  - Echtes Programm: REAL_FOLLOW → 4× CROSSING_STOP(5s Platzhalter) → FINAL_HALT
+- **Crossing-Erkennung:** alle 4 Balken auf `all_sensors_active()` (alle 8 Sensoren); Guard 75 Loops nach jedem Stop; Guard beim Start von REAL_FOLLOW = 0 (sonst wird erster Balken verpasst!)
+- **Schlüsselwert:** Guard nach BACKWARD→REAL_FOLLOW muss 0 sein — mit 75 wurde der erste Balken verpasst, mit 0 klappt es
+- **CROSSING_STOP ist Platzhalter:** `CROSSING_STOP_LOOPS=250` (5s) → später durch Arm/Servo-Sequenz ersetzen
+- **Backward-Rampe:** smooth accel erste 12 Loops, rapid stop am Ende; brake ebenfalls 12 Loops linear
 
 ## Stack
 - Sprache: C++14
@@ -71,8 +72,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ROBOTER_V2` ist aktuell aktiv in `test_config.h` (v1 auskommentiert, als Backup erhalten)
-- roboter_v2 Stop-Trigger: erster Crossing = `isLedActive()` (schräger Eingang), weitere 3 = `all_sensors_active()`; Guard 75 Loops nach jedem Stop
+- `TEST_ROBOTER_V3` ist aktuell aktiv in `test_config.h` (v1+v2 auskommentiert, als Backup erhalten)
+- roboter_v3 Crossing-Trigger: alle 4 Balken = `all_sensors_active()`; Guard nach BACKWARD→REAL_FOLLOW = 0 (nicht 75!)
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
@@ -91,14 +92,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. `roboter_v2` auf der Strecke testen: Stop-Trigger für ersten Crossing (`isLedActive`) und die 3 normalen (`all_sensors_active`) verifizieren — falls Guard zu kurz (Sofort-Retrigger), `STOP_GUARD` in `roboter_v2.cpp:32` erhöhen; falls Pivot-Richtung falsch, Vorzeichen in `STATE_TURN_SPOT` tauschen
+1. `STATE_CROSSING_STOP` in `roboter_v3.cpp` mit der echten Arm/Servo-Aktion befüllen: `CROSSING_STOP_LOOPS=250` durch tatsächliche Bewegungsdauer ersetzen und Servo-/IR-Befehle einfügen (aktuell nur `setVelocity(0.0f)` als Platzhalter)
 2. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung bestimmen
-3. Hauptprogramm: IR-Sensor + Servo in roboter_v2 State Machine integrieren
+3. Servo in roboter_v3 `STATE_CROSSING_STOP` integrieren (Arm ausfahren, drehen, einfahren)
 
 ## Offene Fragen
-- Stimmt die Pivot-Drehrichtung in STATE_TURN_SPOT? (M1 vor / M2 zurück = dreht rechts — je nach Strecke evtl. links drehen nötig)
-- Reicht `isLedActive()` als Trigger für den ersten (schrägen) Crossing, oder braucht es eine spezifischere Bedingung?
-- Wie sieht die finale Integration von IR-Sensor + Servo in roboter_v2 aus?
+- Wie sieht die Arm/Servo-Aktion bei jedem der 4 Crossings konkret aus? (Ausfahren, Drehen, Einfahren — Zeiten/Winkel noch unbekannt)
+- Braucht es nach dem letzten CROSSING_STOP noch eine finale Aktion vor FINAL_HALT?
+- IR-Sensor noch nicht kalibriert — wird für spätere Integration benötigt
 
 ## Session-Routine
 Am Ende jeder Session:
