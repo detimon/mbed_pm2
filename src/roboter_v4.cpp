@@ -3,6 +3,7 @@
 #ifdef TEST_ROBOTER_V4
 
 #include "roboter_v4.h"
+#include "Servo.h"
 
 // ---------------------------------------------------------------------------
 // Motor / geometry parameters (Gear 100:1, KN = 140/12)
@@ -41,11 +42,13 @@ static const int   STOP_GUARD      = 75;   // 1.5 s guard — prevents immediate
 // ---------------------------------------------------------------------------
 static const int   TOTAL_CROSSINGS      = 4;    // 4 wide angled bars to process
 // *** PLACEHOLDER — replace with arm/servo sequence later ***
-static const int   CROSSING_STOP_LOOPS  = 250;  // 5 s stop at each wide crossing
+static const int   CROSSING_STOP_LOOPS  = 100;  // 2 s stop at each wide crossing
 
 static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide bars
 // *** PLACEHOLDER — replace with arm/servo sequence later ***
-static const int   SMALL_CROSSING_STOP_LOOPS = 150; // 3 s stop at each small line
+static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s stop at each small line
+
+static const int   SERVO_RUN_LOOPS  = 25;   // 0.5 s servo rotation at each crossing
 
 static const float SENSOR_THRESHOLD = 0.5f;
 
@@ -78,7 +81,8 @@ static DCMotor*      g_M1 = nullptr;
 static DCMotor*      g_M2 = nullptr;
 static DigitalOut*   g_en = nullptr;
 static LineFollower* g_lf = nullptr;
-static ColorSensor*  g_cs = nullptr;
+static ColorSensor*  g_cs    = nullptr;
+static Servo*        g_servo = nullptr;
 
 static State m_state           = STATE_BLIND;
 static int   m_straight_ctr    = 0;
@@ -142,14 +146,17 @@ void roboter_v4_init(int loops_per_second)
     static LineFollower lineFollower(PB_9, PB_8, BAR_DIST, D_WHEEL, B_WHEEL,
                                      motor_M1.getMaxPhysicalVelocity());
     static ColorSensor colorSensor(PB_3, PC_3, PA_4, PB_0, PC_1, PC_0);
+    static Servo servo_360(PB_12);
 
-    g_M1 = &motor_M1;
-    g_M2 = &motor_M2;
-    g_en = &enable_motors;
-    g_lf = &lineFollower;
-    g_cs = &colorSensor;
+    g_M1    = &motor_M1;
+    g_M2    = &motor_M2;
+    g_en    = &enable_motors;
+    g_lf    = &lineFollower;
+    g_cs    = &colorSensor;
+    g_servo = &servo_360;
     g_cs->setCalibration();
     g_cs->switchLed(ON);
+    g_servo->calibratePulseMinMax(0.050f, 0.1050f);
 
     g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
     g_lf->setMaxWheelVelocity(MAX_SPEED);
@@ -375,6 +382,13 @@ void roboter_v4_task(DigitalOut& led)
         case STATE_CROSSING_STOP:
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
+
+            // Servo: start rotating on first loop, stop after 1 s
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS)
+                g_servo->enable(0.25f);  // full rotation right
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_RUN_LOOPS)
+                g_servo->disable();
+
             m_crossing_ctr--;
             if (m_crossing_ctr <= 0) {
                 if (m_crossings_left == 0) {
@@ -422,6 +436,13 @@ void roboter_v4_task(DigitalOut& led)
         case STATE_SMALL_CROSSING_STOP:
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
+
+            // Servo: start rotating on first loop, stop after 1 s
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS)
+                g_servo->enable(0.25f);  // full rotation
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_RUN_LOOPS)
+                g_servo->disable();
+
             m_small_crossing_ctr--;
             if (m_small_crossing_ctr <= 0) {
                 if (m_small_crossings_left == 0) {
@@ -469,6 +490,7 @@ void roboter_v4_reset(DigitalOut& led)
     m_led_ctr              = 0;
     m_color_log_ctr        = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
+    g_servo->disable();
     led                    = 0;
 }
 
