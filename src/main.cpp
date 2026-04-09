@@ -111,6 +111,13 @@
     #define TEST_RESET(led)   roboter_v3_reset(led)
     #define TEST_PRINT()      roboter_v3_print()
 
+#elif defined(TEST_ROBOTER_V4)
+    #include "roboter_v4.h"
+    #define TEST_INIT(lps)    roboter_v4_init(lps)
+    #define TEST_TASK(led)    roboter_v4_task(led)
+    #define TEST_RESET(led)   roboter_v4_reset(led)
+    #define TEST_PRINT()      roboter_v4_print()
+
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
 #endif
@@ -130,7 +137,7 @@ int main()
     Timer main_task_timer;
 
     DigitalOut user_led(LED1);
-#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3)
+#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3) || defined(TEST_ROBOTER_V4)
     // PB_9 = I2C1 SDA for sensor bar — use a different pin to avoid conflict
     DigitalOut led1(PB_10);
 #else

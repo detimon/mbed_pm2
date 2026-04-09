@@ -4,7 +4,8 @@
 
 // #define TEST_ROBOTER_V1
 // #define TEST_ROBOTER_V2
-#define TEST_ROBOTER_V3
+// #define TEST_ROBOTER_V3
+#define TEST_ROBOTER_V4
 // #define TEST_ALL
 // #define TEST_SERVO
 // #define TEST_SERVO_ALL

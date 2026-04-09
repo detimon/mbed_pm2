@@ -1,15 +1,17 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-08)
-- **Aktiv:** `TEST_ROBOTER_V3` in `test_config.h` (v1+v2 als Backup erhalten)
-- **roboter_v3 State Machine (getestet, funktioniert):**
-  - Intro: BLIND → STRAIGHT(1.7s) → TURN_SPOT → FOLLOW → FOLLOW_1S(1s) → BRAKE(0.24s smooth) → PAUSE(0.4s) → BACKWARD(3.9s, smooth accel 0.24s, rapid stop)
-  - Echtes Programm: REAL_FOLLOW → 4× CROSSING_STOP(5s Platzhalter) → FINAL_HALT
-- **Crossing-Erkennung:** alle 4 Balken auf `all_sensors_active()` (alle 8 Sensoren); Guard 75 Loops nach jedem Stop; Guard beim Start von REAL_FOLLOW = 0 (sonst wird erster Balken verpasst!)
-- **Schlüsselwert:** Guard nach BACKWARD→REAL_FOLLOW muss 0 sein — mit 75 wurde der erste Balken verpasst, mit 0 klappt es
-- **CROSSING_STOP ist Platzhalter:** `CROSSING_STOP_LOOPS=250` (5s) → später durch Arm/Servo-Sequenz ersetzen
-- **Backward-Rampe:** smooth accel erste 12 Loops, rapid stop am Ende; brake ebenfalls 12 Loops linear
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-09)
+- **Aktiv:** `TEST_ROBOTER_V4` in `test_config.h` (v1/v2/v3 als Backup erhalten)
+- **roboter_v4 State Machine (gebaut, noch nicht auf Hardware getestet):**
+  - Intro (identisch v3): BLIND → STRAIGHT(1.7s) → TURN_SPOT → FOLLOW → FOLLOW_1S(1s) → BRAKE(0.24s) → PAUSE(0.4s) → BACKWARD(3.9s)
+  - Breite Balken: REAL_FOLLOW → 4× CROSSING_STOP(5s Platzhalter) → nach 4. Balken weiter zu kleinen Linien
+  - Kleine Linien: SMALL_FOLLOW → 4× SMALL_CROSSING_STOP(3s Platzhalter, sensors 2–5 aktiv) → FINAL_HALT
+- **Kleine Linien Erkennung:** `small_line_active()` = Sensoren 2,3,4,5 alle ≥ 0.5 (`getAvgBit`)
+- **CROSSING_STOP_LOOPS=250 (5s), SMALL_CROSSING_STOP_LOOPS=150 (3s)** — beide Platzhalter für Arm/Servo
+- **Farbsensor dauerhaft aktiv** in roboter_v4: erkennt WHITE (Basis), ROT/GELB/GRÜN/BLAU; steigende Flanke loggt in `m_color_log[8]`
+- **LED Blinkcode** auf led1 (PB_10): schnell=kein Signal, 1/2/3/4 Blinks/2s = ROT/GELB/GRÜN/BLAU; Blinkmuster bleibt nach Erkennung aktiv
+- **Pins Farbsensor:** PB_3(freq), PC_3(led), PA_4(S0), PB_0(S1), PC_1(S2), PC_0(S3)
 
 ## Stack
 - Sprache: C++14
@@ -72,8 +74,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ROBOTER_V3` ist aktuell aktiv in `test_config.h` (v1+v2 auskommentiert, als Backup erhalten)
-- roboter_v3 Crossing-Trigger: alle 4 Balken = `all_sensors_active()`; Guard nach BACKWARD→REAL_FOLLOW = 0 (nicht 75!)
+- `TEST_ROBOTER_V4` ist aktuell aktiv in `test_config.h` (v1/v2/v3 auskommentiert, als Backup erhalten)
+- roboter_v4 breite Balken-Trigger: `all_sensors_active()` (alle 8); Guard nach BACKWARD→REAL_FOLLOW = 0 (nicht 75!)
+- roboter_v4 kleine Linien-Trigger: `small_line_active()` = Sensoren 2,3,4,5 alle aktiv
+- roboter_v4 Farbsensor: steigende Flanke (neutral→Farbe), log bis 8 Einträge, LED-Blinkcode 1–4 Blinks/2s
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
@@ -92,14 +96,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. `STATE_CROSSING_STOP` in `roboter_v3.cpp` mit der echten Arm/Servo-Aktion befüllen: `CROSSING_STOP_LOOPS=250` durch tatsächliche Bewegungsdauer ersetzen und Servo-/IR-Befehle einfügen (aktuell nur `setVelocity(0.0f)` als Platzhalter)
-2. `TEST_IR` aktivieren → IR-Sensor (PB_1/A3) Rohwerte in mV bei verschiedenen Abständen notieren → Kalibrierung bestimmen
-3. Servo in roboter_v3 `STATE_CROSSING_STOP` integrieren (Arm ausfahren, drehen, einfahren)
+1. `TEST_ROBOTER_V4` auf Hardware flashen und testen: breite Balken (4× CROSSING_STOP), dann kleine Linien (4× SMALL_CROSSING_STOP) — prüfen ob `small_line_active()` (Sensoren 2–5) die schmalen Linien zuverlässig erkennt oder Threshold/Sensoren angepasst werden müssen
+2. Farbsensor-Log im seriellen Monitor beobachten: prüfen ob Farberkennung korrekt (WHITE auf Boden, richtige Farbe bei Farbmarkierungen)
+3. Arm/Servo-Sequenz in `STATE_CROSSING_STOP` und `STATE_SMALL_CROSSING_STOP` integrieren (Servo PC_8/PC_6/PB_12), `CROSSING_STOP_LOOPS` + `SMALL_CROSSING_STOP_LOOPS` durch echte Dauer ersetzen
 
 ## Offene Fragen
-- Wie sieht die Arm/Servo-Aktion bei jedem der 4 Crossings konkret aus? (Ausfahren, Drehen, Einfahren — Zeiten/Winkel noch unbekannt)
-- Braucht es nach dem letzten CROSSING_STOP noch eine finale Aktion vor FINAL_HALT?
+- Erkennt `small_line_active()` (Sensoren 2–5) die schmalen Linien zuverlässig? Muss evtl. OR statt AND verwendet werden oder andere Sensor-Indizes?
+- Wie sieht die Arm/Servo-Aktion bei den Crossings konkret aus? (Ausfahren, Drehen, Einfahren — Zeiten/Winkel noch unbekannt)
+- Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?
 - IR-Sensor noch nicht kalibriert — wird für spätere Integration benötigt
+- Farbsensor-Kalibrierung: sind die Hard-coded Referenzwerte (`setCalibration()`) für den aktuellen Aufbau/Abstand passend?
 
 ## Session-Routine
 Am Ende jeder Session:
