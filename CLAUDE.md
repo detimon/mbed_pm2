@@ -1,18 +1,23 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-09)
-- **Aktiv:** `TEST_ROBOTER_V4` in `test_config.h` (v1/v2/v3 als Backup erhalten)
-- **roboter_v4 State Machine:**
-  - Intro (identisch v3): BLIND → STRAIGHT(1.7s) → TURN_SPOT → FOLLOW → FOLLOW_1S(1s) → BRAKE(0.24s) → PAUSE(0.4s) → BACKWARD(3.9s)
-  - Breite Balken: REAL_FOLLOW → 4× CROSSING_STOP(2s) → nach 4. Balken weiter zu kleinen Linien
-  - Kleine Linien: SMALL_FOLLOW → 4× SMALL_CROSSING_STOP(2s, sensors 2–5 aktiv) → FINAL_HALT
-- **360°-Servo (PB_12) integriert:** dreht 0.5s bei jedem CROSSING_STOP und SMALL_CROSSING_STOP, Geschwindigkeit `enable(0.25f)` (halbe Geschwindigkeit — `0.0f` war zu schnell, `0.4375f` lag in Totzone)
-- **Stopzeiten:** CROSSING_STOP_LOOPS=100 (2s), SMALL_CROSSING_STOP_LOOPS=100 (2s), SERVO_RUN_LOOPS=25 (0.5s)
-- **Kleine Linien Erkennung:** `small_line_active()` = Sensoren 2,3,4,5 alle ≥ 0.5 (`getAvgBit`), sofortiger Stopp bei Erkennung
-- **Farbsensor dauerhaft aktiv** in roboter_v4: erkennt WHITE (Basis), ROT/GELB/GRÜN/BLAU; steigende Flanke loggt in `m_color_log[8]`
-- **LED Blinkcode** auf led1 (PB_10): schnell=kein Signal, 1/2/3/4 Blinks/2s = ROT/GELB/GRÜN/BLAU; Blinkmuster bleibt nach Erkennung aktiv
-- **Pins Farbsensor:** PB_3(freq), PC_3(led), PA_4(S0), PB_0(S1), PC_1(S2), PC_0(S3)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-10)
+- **Aktiv:** `TEST_ROBOTER_V6` in `test_config.h`
+- **roboter_v6** = roboter_v5 + farbbasierte Servo-Steuerung (Majority-Vote System)
+- **Farbsensor root cause gefunden + gefixt (noch nicht getestet im Workshop):**
+  - **PROBLEM:** Boden (Wettkampf-Matte) wurde als GELB klassifiziert weil Kalibrierung mit weissem Papier gemacht wurde, nicht mit der echten Matte → floor satp > 0, hue ≈ 20-60° → YELLOW → Hunderte GELB-Stimmen während Fahrt → immer m_action_color=4
+  - **Fix 1:** `SATP_GRAY_MAX=0.01` (war 0.08) in `lib/ColorSensor/ColorSensor.cpp` — verhindert dass dilutierte Karten als WHITE durchfallen
+  - **Fix 2:** `NORM_DELTA_MIN=0.03` (war 0.08) in `lib/ColorSensor/ColorSensor.cpp`
+  - **Fix 3:** Hue-basierte Klassifikation in `getColor()` implementiert (statt g0/r0-Ratios)
+  - **Fix 4:** Vote-Delta-Guard in `roboter_v6.cpp`: nur vote wenn `norm_max - norm_min > 0.20f` — verhindert dass near-neutral floor (miscalibriert als GELB) Stimmen sammelt
+- **roboter_v6 Servo-Logik bei Crossing:**
+  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell
+  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam
+  - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A (PC_8) ausfahren, nach 1s zurück
+  - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B (PC_6) ausfahren, nach 1s zurück
+  - Default (kein Signal): `g_servo->enable(0.25f)` — 360° Fallback
+- **Print in v6 zeigt:** State | wide= small= | Color hue= satp= r= g= b= | action= votes R= Y= G= B=
+- **MUSS NOCH GEMACHT WERDEN:** Kalibrierung mit echter Wettkampf-Matte neu messen
 
 ## Stack
 - Sprache: C++14
@@ -75,11 +80,12 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ROBOTER_V4` ist aktuell aktiv in `test_config.h` (v1/v2/v3 auskommentiert, als Backup erhalten)
-- roboter_v4 breite Balken-Trigger: `all_sensors_active()` (alle 8); Guard nach BACKWARD→REAL_FOLLOW = 0 (nicht 75!)
-- roboter_v4 kleine Linien-Trigger: `small_line_active()` = Sensoren 2,3,4,5 alle aktiv
-- roboter_v4 360°-Servo: `enable(0.25f)` = halbe Geschwindigkeit, 0.5s Drehzeit; `0.4375f` (1/8) lag in Totzone → nicht verwenden
-- roboter_v4 Farbsensor: steigende Flanke (neutral→Farbe), log bis 8 Einträge, LED-Blinkcode 1–4 Blinks/2s
+- `TEST_ROBOTER_V6` ist aktuell aktiv in `test_config.h` (v1–v5 auskommentiert, als Backup erhalten)
+- roboter_v6 = v5 + Majority-Vote Farbsensor-Steuerung + 3 Servos (360° + 2× 180°)
+- roboter_v6 breite Balken-Trigger: `wide_bar_active()` = min. 5 von 8 Sensoren aktiv (Sensoren 1–7)
+- roboter_v6 kleine Linien-Trigger: `small_line_active()` = Sensoren 3,4,5 ODER Sensoren 2,3,4 alle aktiv
+- roboter_v6 Majority-Vote: Stimmen nur in REAL_APPROACH/REAL_FOLLOW/SMALL_FOLLOW; nur wenn `vote_delta > 0.20f`; pop_voted_color() beim Eintritt in CROSSING_STOP
+- Farbsensor Root Cause: Boden-Kalibrierung falsch → Boden wird als GELB klassifiziert → immer GELB gewonnen. Fix: Neu kalibrieren mit echter Matte.
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
@@ -98,18 +104,18 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. Hardware-Test: `pio run --target upload` und Gesamtablauf testen — prüfen ob 360°-Servo bei jedem Crossing 0.5s dreht, ob Stopzeit (2s) passt, und ob `small_line_active()` (Sensoren 2–5) die schmalen Linien zuverlässig erkennt
-2. Servo-Geschwindigkeit feintunen: `enable(0.25f)` ggf. anpassen (Richtung 0.5f = langsamer, Richtung 0.0f = schneller)
-3. 180°-Servos (PC_8, PC_6) für Arm-Bewegung integrieren — Winkel und Sequenz definieren
+1. **KALIBRIERUNG ZUERST:** `TEST_COLOR_SENSOR_CALIB` in `test_config.h` aktivieren → flashen → Sensor im montierten Roboter-Zustand (exakte Einbauhöhe!) über die **Wettkampf-Bodenmatte** halten → Avg Hz R/G/B/W notieren (= neue White-Referenz) → Sensor über schwarze Fläche (schwarze Linie oder abgedeckt) halten → Avg Hz notieren (= neue Black-Referenz) → `setCalibration()` in `lib/ColorSensor/ColorSensor.cpp` mit diesen Werten aktualisieren
+2. **TEST_ROBOTER_V6** aktivieren → flashen → Roboter fahren lassen mit jeder der 4 Farbkarten → Serial Monitor prüfen: `votes R=x Y=x G=x B=x` und `action=ROT/GELB/GRÜN/BLAU` — jede Karte muss ihren eigenen Servo auslösen
+3. Falls vote_delta-Threshold 0.20f zu hoch/niedrig: Serial Monitor beobachten, `hue` und `r= g= b=` Werte für Boden vs. Karten vergleichen, Threshold anpassen
+4. 180°-Servos (PC_8, PC_6) Winkel und Bewegungsablauf definieren und testen
 
 ## Offene Fragen
+- **Kalibrierung noch nicht gemacht:** Hard-coded Referenzwerte in `setCalibration()` wurden mit weissem Papier gemessen, nicht mit echter Wettkampf-Matte → MUSS neu kalibriert werden (Schritt 1 oben)
+- vote_delta-Threshold 0.20f: ungetesteter Wert — nach Kalibrierung prüfen ob er Boden filtert aber Karten durchlässt; ggf. anpassen
 - Erkennt `small_line_active()` (Sensoren 2–5) die schmalen Linien zuverlässig? Muss evtl. OR statt AND verwendet werden oder andere Sensor-Indizes?
-- 360°-Servo Geschwindigkeit `enable(0.25f)`: passt die halbe Geschwindigkeit, oder muss weiter angepasst werden?
-- 360°-Servo Totzone: `0.4375f` (1/8 Speed) lag in der Totzone — wo genau liegt die Grenze?
 - Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt)
 - Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?
 - IR-Sensor noch nicht kalibriert — wird für spätere Integration benötigt
-- Farbsensor-Kalibrierung: sind die Hard-coded Referenzwerte (`setCalibration()`) für den aktuellen Aufbau/Abstand passend?
 
 ## Session-Routine
 Am Ende jeder Session:

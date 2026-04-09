@@ -267,34 +267,39 @@ int ColorSensor::getColor()
     const float c0 = std::max(0.0f, m_color_cal[3]);
 
     // ---- Tunables ----
-    const float C0_BLACK_MAX = 80.0f;     // below => BLACK
-    const float C0_WHITE_MIN = 650.0f;    // above + neutral => WHITE
+    const float C0_BLACK_MAX    = 80.0f;  // below => BLACK
+    const float C0_WHITE_MIN    = 650.0f; // above + neutral => WHITE
+    // The chromatic-ratio calibration compresses colour signals heavily when
+    // mixed with white floor light.  At ~35% floor contamination the satp in
+    // calibrated space already drops below 0.08 for green/blue cards.
+    // Setting SATP_GRAY_MAX=0.01 keeps pure white floor (satp≈0) as WHITE
+    // while letting diluted colours through to the hue classifier.
+    const float SATP_GRAY_MAX   = 0.01f;  // below => neutral (for WHITE check)
+    // Similarly, norm(max-min) drops quickly with dilution.  0.03 allows
+    // detection up to ~83% white floor contamination.
+    const float NORM_DELTA_MIN  = 0.03f;  // norm(max-min) below => too diluted to classify
 
-    const float SATP_GRAY_MAX  = 0.08f;   // below => neutral
-    const float SATP_COLOR_MIN = 0.12f;   // below => treat as unknown/neutral
+    // Hue-based colour thresholds (degrees, 0-360).
+    // Hue is invariant to white-floor dilution: adding equal light to all channels
+    // shifts saturation but NOT hue. Measured static values:
+    //   ROT:  hue ≈   6°  (g0/r0=0.107 → hue=60°×0.107≈6°)
+    //   GELB: hue ≈  36°  (g0/r0=0.622 → hue=60°×0.622≈37°)
+    //   GRÜN: hue ≈ 124°  (from applyCalibration output)
+    //   BLAU: hue ≈ 224°  (from applyCalibration output)
+    const float HUE_RED_MAX    = 20.0f;   // 0°–20°   = ROT
+    const float HUE_YELLOW_MAX = 80.0f;   // 20°–80°  = GELB
+    const float HUE_GREEN_MAX  = 175.0f;  // 80°–175° = GRÜN
+    const float HUE_BLUE_MAX   = 280.0f;  // 175°–280°= BLAU
+    const float HUE_RED_MIN    = 330.0f;  // 330°–360°= ROT (wrap-around)
 
-    // Hue boundaries
-    const float H_RED_MAX_1   = 20.0f;
-    const float H_YELLOW_MAX  = 65.0f;
-    const float H_GREEN_MAX   = 170.0f;
-    const float H_CYAN_MAX    = 210.0f;
-    const float H_BLUE_MAX    = 240.0f;
-    const float H_MAGENTA_MIN = 345.0f;
+    const int STABLE_COUNT = 1;
 
-    // Magenta override thresholds (tuned from your logs)
-    const float MAG_RG_MIN = 2.5f;  // magenta r0/g0 ~4.5, blue r0/g0 ~0.5
-    const float MAG_BG_MIN = 1.2f;  // ensure blue is present (magenta b0/g0 ~1.9)
-    const float MAG_RB_MAX = 3.8f;  // keep pure red out (red r0/b0 ~5.6, magenta ~2.4)
-
-    const int STABLE_COUNT = 3;
-
-    // ---- Use calibrated (white-balanced) channels ----
+    // ---- Kalibrierte Kanalwerte (für BLACK/WHITE-Check) ----
     float r0 = std::max(0.0f, m_color_cal[0]);
     float g0 = std::max(0.0f, m_color_cal[1]);
     float b0 = std::max(0.0f, m_color_cal[2]);
 
     const float eps = 1e-6f;
-
     const float sum = r0 + g0 + b0;
     const float mx0 = std::max(r0, std::max(g0, b0));
     const float mn0 = std::min(r0, std::min(g0, b0));
@@ -302,68 +307,47 @@ int ColorSensor::getColor()
 
     int candidate = 0;
 
-    // ---- Brightness gates ----
     if (c0 < C0_BLACK_MAX) {
         candidate = 1; // BLACK
-    }
-    else if (satp < SATP_GRAY_MAX && c0 > C0_WHITE_MIN) {
+    } else if (satp < SATP_GRAY_MAX && c0 > C0_WHITE_MIN) {
         candidate = 2; // WHITE
-    }
-    else if (satp < SATP_COLOR_MIN) {
-        candidate = 0; // UNKNOWN
-    }
-    else {
-        // ---- MAGENTA OVERRIDE (before HSV hue) ----
-        // Use ratios in calibrated space; these are stable and separate your clusters well.
-        const float rg = r0 / std::max(g0, eps);
-        const float bg = b0 / std::max(g0, eps);
-        const float rb = r0 / std::max(b0, eps);
+    } else {
+        // ---- Hue-Klassifikation aus normalisierten Werten ----
+        // m_color_norm hat max(R,G,B)=1; delta = max-min misst Sättigung.
+        float rn = m_color_norm[0];
+        float gn = m_color_norm[1];
+        float bn = m_color_norm[2];
+        float cmax = std::max(rn, std::max(gn, bn));
+        float cmin = std::min(rn, std::min(gn, bn));
+        float delta = cmax - cmin;
 
-        // Magenta: strong red, meaningful blue, low green; but not "pure red" (rb too large).
-        if (rg > MAG_RG_MIN && bg > MAG_BG_MIN && rb < MAG_RB_MAX) {
-            candidate = 8; // MAGENTA
+        if (delta < NORM_DELTA_MIN) {
+            candidate = 0; // zu stark verdünnt → UNKNOWN
         } else {
-            // Safe normalization for hue
-            float r = r0 / std::max(mx0, eps);
-            float g = g0 / std::max(mx0, eps);
-            float b = b0 / std::max(mx0, eps);
+            float hue = 0.0f;
+            if      (cmax == rn) hue = 60.0f * fmodf((gn - bn) / delta, 6.0f);
+            else if (cmax == gn) hue = 60.0f * ((bn - rn) / delta + 2.0f);
+            else                 hue = 60.0f * ((rn - gn) / delta + 4.0f);
+            if (hue < 0.0f) hue += 360.0f;
 
-            // HSV hue
-            const float cmax = std::max(r, std::max(g, b));
-            const float cmin = std::min(r, std::min(g, b));
-            const float delta = cmax - cmin;
-
-            float h = 0.0f;
-            if (delta < eps) {
-                candidate = 0;
-            } else {
-                if (cmax == r)      h = 60.0f * std::fmod(((g - b) / delta), 6.0f);
-                else if (cmax == g) h = 60.0f * (((b - r) / delta) + 2.0f);
-                else                h = 60.0f * (((r - g) / delta) + 4.0f);
-                if (h < 0.0f) h += 360.0f;
-
-                if (h <= H_RED_MAX_1 || h >= H_MAGENTA_MIN) candidate = 3; // RED
-                else if (h <= H_YELLOW_MAX)                 candidate = 4; // YELLOW
-                else if (h <= H_GREEN_MAX)                  candidate = 5; // GREEN
-                else if (h <= H_CYAN_MAX)                   candidate = 6; // CYAN
-                else if (h <= H_BLUE_MAX)                   candidate = 7; // BLUE
-                else                                        candidate = 8; // MAGENTA
-            }
-        }
+            if      (hue < HUE_RED_MAX || hue > HUE_RED_MIN) candidate = 3; // ROT
+            else if (hue < HUE_YELLOW_MAX)                    candidate = 4; // GELB
+            else if (hue < HUE_GREEN_MAX)                     candidate = 5; // GRÜN
+            else if (hue < HUE_BLUE_MAX)                      candidate = 7; // BLAU
+            else                                               candidate = 0; // UNKNOWN
 
 #if COLOR_DEBUG
-        printf("c0=%.1f  r0=%.3f g0=%.3f b0=%.3f  satp=%.3f  out=%d\n",
-               c0, r0, g0, b0, satp, candidate);
+            printf("c0=%.1f  rn=%.3f gn=%.3f bn=%.3f  delta=%.3f  hue=%.1f  out=%d\n",
+                   c0, rn, gn, bn, delta, hue, candidate);
 #endif
+        }
     }
 
-    // ---- Hysteresis ----
+    // ---- Hysterese ----
     static int last = 0;
     static int cnt  = 0;
-
     if (candidate == last) cnt = std::min(cnt + 1, STABLE_COUNT);
     else { last = candidate; cnt = 1; }
-
     return (cnt >= STABLE_COUNT) ? candidate : last;
 }
 

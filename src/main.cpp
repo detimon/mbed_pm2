@@ -118,6 +118,27 @@
     #define TEST_RESET(led)   roboter_v4_reset(led)
     #define TEST_PRINT()      roboter_v4_print()
 
+#elif defined(TEST_ROBOTER_V5)
+    #include "roboter_v5.h"
+    #define TEST_INIT(lps)    roboter_v5_init(lps)
+    #define TEST_TASK(led)    roboter_v5_task(led)
+    #define TEST_RESET(led)   roboter_v5_reset(led)
+    #define TEST_PRINT()      roboter_v5_print()
+
+#elif defined(TEST_ROBOTER_V6)
+    #include "roboter_v6.h"
+    #define TEST_INIT(lps)    roboter_v6_init(lps)
+    #define TEST_TASK(led)    roboter_v6_task(led)
+    #define TEST_RESET(led)   roboter_v6_reset(led)
+    #define TEST_PRINT()      roboter_v6_print()
+
+#elif defined(TEST_DREHSERVO_90)
+    #include "test_drehservo_90.h"
+    #define TEST_INIT(lps)    drehservo_90_init(lps)
+    #define TEST_TASK(led)    drehservo_90_task(led)
+    #define TEST_RESET(led)   drehservo_90_reset(led)
+    #define TEST_PRINT()      drehservo_90_print()
+
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
 #endif
@@ -137,7 +158,7 @@ int main()
     Timer main_task_timer;
 
     DigitalOut user_led(LED1);
-#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3) || defined(TEST_ROBOTER_V4)
+#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3) || defined(TEST_ROBOTER_V4) || defined(TEST_ROBOTER_V5) || defined(TEST_ROBOTER_V6)
     // PB_9 = I2C1 SDA for sensor bar — use a different pin to avoid conflict
     DigitalOut led1(PB_10);
 #else

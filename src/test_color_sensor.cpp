@@ -15,7 +15,7 @@
 #define ANSI_WHITE   "\033[97m"
 #define ANSI_ERASE   "\033[K"        // erase to end of line
 
-#define DISPLAY_LINES 7              // number of lines printed — must stay in sync with color_sensor_print()
+#define DISPLAY_LINES 8              // number of lines printed — must stay in sync with color_sensor_print()
 #define PRINT_EVERY_N 12             // print every ~240 ms at 20 ms task period
 
 static ColorSensor* mp_sensor         = nullptr;
@@ -24,6 +24,8 @@ static float        m_color_avg_Hz[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 static float        m_color_cal[4]    = {0.0f, 0.0f, 0.0f, 0.0f};
 static int          m_color_num       = -1;
 static const char*  m_color_string    = nullptr;
+static float        m_color_norm[3]   = {0.0f, 0.0f, 0.0f};
+static float        m_hue             = 0.0f;
 static bool         m_task_active     = false;
 static int          m_print_counter   = 0;
 static bool         m_first_print     = true;
@@ -71,6 +73,22 @@ void color_sensor_task(DigitalOut& led1)
 
     m_color_num    = mp_sensor->getColor();
     m_color_string = mp_sensor->getColorString(m_color_num);
+
+    // Hue aus normalisiertem RGB berechnen
+    const float* norm = mp_sensor->readColorNorm();
+    for (int i = 0; i < 3; i++) m_color_norm[i] = norm[i];
+    float r = norm[0], g = norm[1], b = norm[2];
+    float cmax = fmaxf(r, fmaxf(g, b));
+    float cmin = fminf(r, fminf(g, b));
+    float delta = cmax - cmin;
+    float hue = 0.0f;
+    if (delta > 1e-6f) {
+        if      (cmax == r) hue = 60.0f * fmodf((g - b) / delta, 6.0f);
+        else if (cmax == g) hue = 60.0f * ((b - r) / delta + 2.0f);
+        else                hue = 60.0f * ((r - g) / delta + 4.0f);
+        if (hue < 0.0f) hue += 360.0f;
+    }
+    m_hue = hue;
 }
 
 void color_sensor_reset(DigitalOut& led1)
@@ -114,6 +132,8 @@ void color_sensor_print()
            m_color_avg_Hz[0], m_color_avg_Hz[1], m_color_avg_Hz[2], m_color_avg_Hz[3]);
     printf(" Calibr. | R:%8.3f  G:%8.3f  B:%8.3f  W:%8.3f" ANSI_ERASE "\n",
            m_color_cal[0], m_color_cal[1], m_color_cal[2], m_color_cal[3]);
+    printf(" Norm    | R:%8.3f  G:%8.3f  B:%8.3f  Hue:%6.1f deg" ANSI_ERASE "\n",
+           m_color_norm[0], m_color_norm[1], m_color_norm[2], m_hue);
     printf(ANSI_CYAN "------------------------------------------------------------" ANSI_RESET ANSI_ERASE "\n");
     printf(" Detected: " ANSI_BOLD "%s>>> %-6s <<<" ANSI_RESET "  %s  (press blue button to toggle)" ANSI_ERASE "\n",
            det_color, det_name, status);

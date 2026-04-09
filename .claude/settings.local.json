@@ -15,7 +15,12 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "Bash(~/.platformio/penv/Scripts/pio run:*)",
+      "Bash(pio run:*)",
+      "Bash(~/.platformio/penv/bin/pio run:*)",
+      "Read(//c/Users/alexa/.platformio/penv/Scripts//**)",
+      "Read(//c/Users/alexa/AppData/Local/Programs/**)"
     ]
   }
 }

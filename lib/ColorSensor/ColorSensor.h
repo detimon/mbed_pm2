@@ -23,7 +23,7 @@
 
 #define COLOR_DEBUG 0
 
-#define N_FILTER 5
+#define N_FILTER 1
 
 /**
  * @brief Calibration/reference values for each optical channel.
