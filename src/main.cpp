@@ -7,84 +7,84 @@
 #include "test_config.h"
 
 #if defined(TEST_SERVO)
-    #include "test_servo.h"
+    #include "test_files/test_servo.h"
     #define TEST_INIT(lps)    servo_init(lps)
     #define TEST_TASK(led)    servo_task(led)
     #define TEST_RESET(led)   servo_reset(led)
     #define TEST_PRINT()      servo_print()
 
 #elif defined(TEST_COLOR_SENSOR)
-    #include "test_color_sensor.h"
+    #include "test_files/test_color_sensor.h"
     #define TEST_INIT(lps)    color_sensor_init(lps)
     #define TEST_TASK(led)    color_sensor_task(led)
     #define TEST_RESET(led)   color_sensor_reset(led)
     #define TEST_PRINT()      color_sensor_print()
 
 #elif defined(TEST_COLOR_SENSOR_CALIB)
-    #include "test_color_sensor_calib.h"
+    #include "test_files/test_color_sensor_calib.h"
     #define TEST_INIT(lps)    color_sensor_calib_init(lps)
     #define TEST_TASK(led)    color_sensor_calib_task(led)
     #define TEST_RESET(led)   color_sensor_calib_reset(led)
     #define TEST_PRINT()      color_sensor_calib_print()
 
 #elif defined(TEST_LINE_FOLLOWER)
-    #include "test_line_follower.h"
+    #include "test_files/test_line_follower.h"
     #define TEST_INIT(lps)  line_follower_init(lps)
     #define TEST_TASK(led)  line_follower_task(led)
     #define TEST_RESET(led) line_follower_reset(led)
     #define TEST_PRINT()    line_follower_print()
 
 #elif defined(TEST_LINE_FOLLOWER_SLOW)
-    #include "test_line_follower_SLOW.h"
+    #include "test_files/test_line_follower_SLOW.h"
     #define TEST_INIT(lps)  line_follower_slow_init(lps)
     #define TEST_TASK(led)  line_follower_slow_task(led)
     #define TEST_RESET(led) line_follower_slow_reset(led)
     #define TEST_PRINT()    line_follower_slow_print()
 
 #elif defined(TEST_LINE_FOLLOWER_FAST)
-    #include "test_line_follower_FAST.h"
+    #include "test_files/test_line_follower_FAST.h"
     #define TEST_INIT(lps)  line_follower_fast_init(lps)
     #define TEST_TASK(led)  line_follower_fast_task(led)
     #define TEST_RESET(led) line_follower_fast_reset(led)
     #define TEST_PRINT()    line_follower_fast_print()
 
 #elif defined(TEST_SERVO_ALL)
-    #include "test_servo_all.h"
+    #include "test_files/test_servo_all.h"
     #define TEST_INIT(lps)    servo_all_init(lps)
     #define TEST_TASK(led)    servo_all_task(led)
     #define TEST_RESET(led)   servo_all_reset(led)
     #define TEST_PRINT()      servo_all_print()
 
 #elif defined(TEST_SERVO_CALIB)
-    #include "test_servo_calib.h"
+    #include "test_files/test_servo_calib.h"
     #define TEST_INIT(lps)    servo_calib_init(lps)
     #define TEST_TASK(led)    servo_calib_task(led)
     #define TEST_RESET(led)   servo_calib_reset(led)
     #define TEST_PRINT()      servo_calib_print()
 
 #elif defined(TEST_IR)
-    #include "test_ir.h"
+    #include "test_files/test_ir.h"
     #define TEST_INIT(lps)    ir_init(lps)
     #define TEST_TASK(led)    ir_task(led)
     #define TEST_RESET(led)   ir_reset(led)
     #define TEST_PRINT()      ir_print()
 
 #elif defined(TEST_DC_MOTOR)
-    #include "test_dc_motor.h"
+    #include "test_files/test_dc_motor.h"
     #define TEST_INIT(lps)    dc_motor_init(lps)
     #define TEST_TASK(led)    dc_motor_task(led)
     #define TEST_RESET(led)   dc_motor_reset(led)
     #define TEST_PRINT()      dc_motor_print()
 
 #elif defined(TEST_ALL)
-    #include "test_all.h"
+    #include "test_files/test_all.h"
     #define TEST_INIT(lps)    all_init(lps)
     #define TEST_TASK(led)    all_task(led)
     #define TEST_RESET(led)   all_reset(led)
     #define TEST_PRINT()      all_print()
 
 #elif defined(TEST_LINE_FOLLOWER_BACKWARD)
-    #include "test_line_follower_BACKWARD.h"
+    #include "test_files/test_line_follower_BACKWARD.h"
     #define TEST_INIT(lps)    line_follower_backward_init(lps)
     #define TEST_TASK(led)    line_follower_backward_task(led)
     #define TEST_RESET(led)   line_follower_backward_reset(led)
@@ -132,8 +132,22 @@
     #define TEST_RESET(led)   roboter_v6_reset(led)
     #define TEST_PRINT()      roboter_v6_print()
 
+#elif defined(TEST_ROBOTER_V7)
+    #include "roboter_v7.h"
+    #define TEST_INIT(lps)    roboter_v7_init(lps)
+    #define TEST_TASK(led)    roboter_v7_task(led)
+    #define TEST_RESET(led)   roboter_v7_reset(led)
+    #define TEST_PRINT()      roboter_v7_print()
+
+#elif defined(TEST_ROBOTER_V8)
+    #include "roboter_v8.h"
+    #define TEST_INIT(lps)    roboter_v8_init(lps)
+    #define TEST_TASK(led)    roboter_v8_task(led)
+    #define TEST_RESET(led)   roboter_v8_reset(led)
+    #define TEST_PRINT()      roboter_v8_print()
+
 #elif defined(TEST_DREHSERVO_90)
-    #include "test_drehservo_90.h"
+    #include "test_files/test_drehservo_90.h"
     #define TEST_INIT(lps)    drehservo_90_init(lps)
     #define TEST_TASK(led)    drehservo_90_task(led)
     #define TEST_RESET(led)   drehservo_90_reset(led)
@@ -158,7 +172,7 @@ int main()
     Timer main_task_timer;
 
     DigitalOut user_led(LED1);
-#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3) || defined(TEST_ROBOTER_V4) || defined(TEST_ROBOTER_V5) || defined(TEST_ROBOTER_V6)
+#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3) || defined(TEST_ROBOTER_V4) || defined(TEST_ROBOTER_V5) || defined(TEST_ROBOTER_V6) || defined(TEST_ROBOTER_V7) || defined(TEST_ROBOTER_V8)
     // PB_9 = I2C1 SDA for sensor bar — use a different pin to avoid conflict
     DigitalOut led1(PB_10);
 #else

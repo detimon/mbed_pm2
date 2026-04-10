@@ -2,22 +2,25 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-10)
-- **Aktiv:** `TEST_ROBOTER_V6` in `test_config.h`
-- **roboter_v6** = roboter_v5 + farbbasierte Servo-Steuerung (Majority-Vote System)
-- **Farbsensor root cause gefunden + gefixt (noch nicht getestet im Workshop):**
-  - **PROBLEM:** Boden (Wettkampf-Matte) wurde als GELB klassifiziert weil Kalibrierung mit weissem Papier gemacht wurde, nicht mit der echten Matte → floor satp > 0, hue ≈ 20-60° → YELLOW → Hunderte GELB-Stimmen während Fahrt → immer m_action_color=4
-  - **Fix 1:** `SATP_GRAY_MAX=0.01` (war 0.08) in `lib/ColorSensor/ColorSensor.cpp` — verhindert dass dilutierte Karten als WHITE durchfallen
-  - **Fix 2:** `NORM_DELTA_MIN=0.03` (war 0.08) in `lib/ColorSensor/ColorSensor.cpp`
-  - **Fix 3:** Hue-basierte Klassifikation in `getColor()` implementiert (statt g0/r0-Ratios)
-  - **Fix 4:** Vote-Delta-Guard in `roboter_v6.cpp`: nur vote wenn `norm_max - norm_min > 0.20f` — verhindert dass near-neutral floor (miscalibriert als GELB) Stimmen sammelt
-- **roboter_v6 Servo-Logik bei Crossing:**
-  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell
-  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam
-  - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A (PC_8) ausfahren, nach 1s zurück
-  - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B (PC_6) ausfahren, nach 1s zurück
-  - Default (kein Signal): `g_servo->enable(0.25f)` — 360° Fallback
-- **Print in v6 zeigt:** State | wide= small= | Color hue= satp= r= g= b= | action= votes R= Y= G= B=
-- **MUSS NOCH GEMACHT WERDEN:** Kalibrierung mit echter Wettkampf-Matte neu messen
+- **Aktiv:** `TEST_ROBOTER_V8` in `test_config.h` — **funktioniert vollständig**
+- **roboter_v7** = Backup (funktionierend, nicht löschen)
+- **roboter_v8** = aktive Version, getestet, alle 4 Farben zuverlässig erkannt, alle Servos korrekt
+- **Dateistruktur:** Alle `test_*`-Files in `src/test_files/` verschoben; `main.cpp` includes mit `test_files/`-Prefix aktualisiert; `roboter_v*.cpp/.h` bleiben direkt in `src/`
+- **test_config.h** neu organisiert: Roboter-Versionen oben, Farbsensor-Gruppe, Hardware-Tests, Liniensensor-Tests, Sonstiges
+- **Servo-Logik (v8):**
+  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, **3s** (`SERVO_ROT_LOOPS=150`)
+  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, **1s** (`SERVO_GELB_LOOPS=50`)
+  - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A (PC_8), nach 1s zurück
+  - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B (PC_6), nach 1s zurück
+  - Default: `g_servo->enable(0.25f)` — 360° Fallback, 1s
+- **Timing:** `CROSSING_STOP_LOOPS=200` (4s), `SMALL_CROSSING_STOP_LOOPS=200` (4s), `SMALL_REENTRY_GUARD=100` (2s)
+- **Hue-Grenzen (lib/ColorSensor/ColorSensor.cpp):**
+  - ROT: 0°–20° und 330°–360°
+  - GELB: 20°–80°
+  - GRÜN: 80°–**215°** (war 175° — verbreitert gegen BLAU-Verwechslung)
+  - BLAU: 215°–280°
+- **Kalibrierung:** Original (weisses Papier) aktiv — Matte-Kalibrierung verschiebt Hue-Werte, alle Grenzen müssten neu eingestellt werden → nicht machen
+- **Farblesung:** `m_action_color = g_cs->getColor()` im selben Loop wie `wide_bar_active()` / `small_line_active()` — vor `setVelocity(0)` → Sensor steht noch über Karte
 
 ## Stack
 - Sprache: C++14
@@ -80,12 +83,13 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ROBOTER_V6` ist aktuell aktiv in `test_config.h` (v1–v5 auskommentiert, als Backup erhalten)
-- roboter_v6 = v5 + Majority-Vote Farbsensor-Steuerung + 3 Servos (360° + 2× 180°)
-- roboter_v6 breite Balken-Trigger: `wide_bar_active()` = min. 5 von 8 Sensoren aktiv (Sensoren 1–7)
-- roboter_v6 kleine Linien-Trigger: `small_line_active()` = Sensoren 3,4,5 ODER Sensoren 2,3,4 alle aktiv
-- roboter_v6 Majority-Vote: Stimmen nur in REAL_APPROACH/REAL_FOLLOW/SMALL_FOLLOW; nur wenn `vote_delta > 0.20f`; pop_voted_color() beim Eintritt in CROSSING_STOP
-- Farbsensor Root Cause: Boden-Kalibrierung falsch → Boden wird als GELB klassifiziert → immer GELB gewonnen. Fix: Neu kalibrieren mit echter Matte.
+- `TEST_ROBOTER_V8` ist aktuell aktiv in `test_config.h`; v7 als Backup (funktionierend), v1–v6 erhalten
+- roboter_v8: SMALL_REENTRY_GUARD=100 (2s) verhindert Stopp auf Farbkarte statt echtem Querbalken
+- `src/test_files/` Unterordner erstellt — alle `test_*.cpp/.h` darin; `roboter_v*.cpp/.h` bleiben in `src/`
+- `test_config.h` neu gegliedert: Roboter oben → Farbsensor → Hardware Tests → Liniensensor → Sonstiges
+- Hue-Grenze GRÜN: 215° (nicht 175°) — NIEMALS zurücksetzen, GRÜN→BLAU-Fehler kehrt sonst zurück
+- Kalibrierung mit echter Matte NICHT machen ohne gleichzeitige Hue-Grenzen-Anpassung — verschiebt alle Werte
+- Neukalibierung mit Matte getestet: GRÜN wurde als GELB erkannt → sofort zurückgesetzt auf Paper-Kalibrierung
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
 - `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
@@ -104,18 +108,13 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **KALIBRIERUNG ZUERST:** `TEST_COLOR_SENSOR_CALIB` in `test_config.h` aktivieren → flashen → Sensor im montierten Roboter-Zustand (exakte Einbauhöhe!) über die **Wettkampf-Bodenmatte** halten → Avg Hz R/G/B/W notieren (= neue White-Referenz) → Sensor über schwarze Fläche (schwarze Linie oder abgedeckt) halten → Avg Hz notieren (= neue Black-Referenz) → `setCalibration()` in `lib/ColorSensor/ColorSensor.cpp` mit diesen Werten aktualisieren
-2. **TEST_ROBOTER_V6** aktivieren → flashen → Roboter fahren lassen mit jeder der 4 Farbkarten → Serial Monitor prüfen: `votes R=x Y=x G=x B=x` und `action=ROT/GELB/GRÜN/BLAU` — jede Karte muss ihren eigenen Servo auslösen
-3. Falls vote_delta-Threshold 0.20f zu hoch/niedrig: Serial Monitor beobachten, `hue` und `r= g= b=` Werte für Boden vs. Karten vergleichen, Threshold anpassen
-4. 180°-Servos (PC_8, PC_6) Winkel und Bewegungsablauf definieren und testen
+1. **Robustheit testen:** `TEST_ROBOTER_V8` flashen → mindestens 10 Durchgänge mit allen 4 Farben auf dem echten Parcours → Fehlerrate notieren → falls noch Fehlklassifikationen: Serial Monitor `hue=` Wert der fehlerhaften Karte ablesen und Hue-Grenze in `lib/ColorSensor/ColorSensor.cpp` minimal anpassen
 
 ## Offene Fragen
-- **Kalibrierung noch nicht gemacht:** Hard-coded Referenzwerte in `setCalibration()` wurden mit weissem Papier gemessen, nicht mit echter Wettkampf-Matte → MUSS neu kalibriert werden (Schritt 1 oben)
-- vote_delta-Threshold 0.20f: ungetesteter Wert — nach Kalibrierung prüfen ob er Boden filtert aber Karten durchlässt; ggf. anpassen
-- Erkennt `small_line_active()` (Sensoren 2–5) die schmalen Linien zuverlässig? Muss evtl. OR statt AND verwendet werden oder andere Sensor-Indizes?
-- Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt)
+- Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt — aktuell fährt Servo einfach auf 1.0f und zurück)
 - Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?
 - IR-Sensor noch nicht kalibriert — wird für spätere Integration benötigt
+- Kalibrierung mit echter Matte verschiebt alle Hue-Werte → nicht empfohlen ohne gleichzeitige Hue-Grenzen-Anpassung
 
 ## Session-Routine
 Am Ende jeder Session:

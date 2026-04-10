@@ -104,15 +104,15 @@ void ColorSensor::reset()
  */
 void ColorSensor::setCalibration()
 {
-    m_reference_black.red = 333.22f;     // measure the average raw frequency of the red channel with a black surface and store it as the black reference (dark level)
-    m_reference_black.green = 345.66f;   // measure the average raw frequency of the green channel with a black surface and store it as the black reference (dark level)
-    m_reference_black.blue = 539.37f;    // measure the average raw frequency of the blue channel with a black surface and store it as the black reference (dark level)
-    m_reference_black.white = 1297.02f;  // measure the average raw frequency of the clear channel with a black surface and store it as the black reference (dark level)
+    m_reference_black.red = 333.22f;
+    m_reference_black.green = 345.66f;
+    m_reference_black.blue = 539.37f;
+    m_reference_black.white = 1297.02f;
 
-    m_reference_white.red = 598.44f;     // measure the average raw frequency of the red channel with a white surface and store it as the white reference (normalization / white balance)
-    m_reference_white.green = 643.92f;   // measure the average raw frequency of the green channel with a white surface and store it as the white reference (normalization / white balance)
-    m_reference_white.blue = 993.05f;    // measure the average raw frequency of the blue channel with a white surface and store it as the white reference (normalization / white balance)
-    m_reference_white.white = 2298.85f;  // measure the average raw frequency of the clear channel with a white surface and store it as the white reference (normalization / white balance)
+    m_reference_white.red = 598.44f;
+    m_reference_white.green = 643.92f;
+    m_reference_white.blue = 993.05f;
+    m_reference_white.white = 2298.85f;
 
     m_calib_black[0] = m_reference_black.red;
     m_calib_black[1] = m_reference_black.green;
@@ -287,9 +287,9 @@ int ColorSensor::getColor()
     //   GRÜN: hue ≈ 124°  (from applyCalibration output)
     //   BLAU: hue ≈ 224°  (from applyCalibration output)
     const float HUE_RED_MAX    = 20.0f;   // 0°–20°   = ROT
-    const float HUE_YELLOW_MAX = 80.0f;   // 20°–80°  = GELB
-    const float HUE_GREEN_MAX  = 175.0f;  // 80°–175° = GRÜN
-    const float HUE_BLUE_MAX   = 280.0f;  // 175°–280°= BLAU
+    const float HUE_YELLOW_MAX = 80.0f;   // 35°–80°  = GELB
+    const float HUE_GREEN_MAX  = 215.0f;  // 80°–215° = GRÜN (extra Spielraum gegen BLAU)
+    const float HUE_BLUE_MAX   = 280.0f;  // 215°–280°= BLAU
     const float HUE_RED_MIN    = 330.0f;  // 330°–360°= ROT (wrap-around)
 
     const int STABLE_COUNT = 1;
