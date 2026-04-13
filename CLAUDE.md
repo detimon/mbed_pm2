@@ -1,12 +1,14 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-10)
-- **Aktiv:** `TEST_ROBOTER_V8` in `test_config.h` — **funktioniert vollständig**
-- **roboter_v7** = Backup (funktionierend, nicht löschen)
-- **roboter_v8** = aktive Version, getestet, alle 4 Farben zuverlässig erkannt, alle Servos korrekt
-- **Dateistruktur:** Alle `test_*`-Files in `src/test_files/` verschoben; `main.cpp` includes mit `test_files/`-Prefix aktualisiert; `roboter_v*.cpp/.h` bleiben direkt in `src/`
-- **test_config.h** neu organisiert: Roboter-Versionen oben, Farbsensor-Gruppe, Hardware-Tests, Liniensensor-Tests, Sonstiges
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-13)
+- **Aktiv in test_config.h:** `TEST_ENDSCHALTER` — muss auf `TEST_ROBOTER_V8` zurückgesetzt werden vor nächstem Roboter-Test
+- **roboter_v8** = aktive Roboter-Version, funktioniert vollständig; **roboter_v7** = Backup (nicht löschen)
+- **Neu (heute):** `test_endschalter.cpp/.h` erstellt — Endschalter für 360°-Servo (Drehteller) an **A2 (PC_5)**, getestet, funktioniert
+  - `DigitalIn` mit internem PullUp, Polling alle 20ms, fallende Flanke = gedrückt
+  - A0 (PC_2) war physisch zu eng → A2 (PC_5) gewählt; A1 (PC_3) belegt durch ColorSensor LED Enable
+- **Aufgeräumt (heute):** `led1` (PB_9/PB_10) aus `main.cpp` entfernt — `user_led` (LED1 onboard) übernimmt überall
+- **Dateistruktur:** Alle `test_*`-Files in `src/test_files/`; `roboter_v*.cpp/.h` bleiben direkt in `src/`
 - **Servo-Logik (v8):**
   - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, **3s** (`SERVO_ROT_LOOPS=150`)
   - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, **1s** (`SERVO_GELB_LOOPS=50`)
@@ -19,7 +21,7 @@ _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-10)
   - GELB: 20°–80°
   - GRÜN: 80°–**215°** (war 175° — verbreitert gegen BLAU-Verwechslung)
   - BLAU: 215°–280°
-- **Kalibrierung:** Original (weisses Papier) aktiv — Matte-Kalibrierung verschiebt Hue-Werte, alle Grenzen müssten neu eingestellt werden → nicht machen
+- **Kalibrierung:** Original (weisses Papier) aktiv — Matte-Kalibrierung verschiebt Hue-Werte → nicht machen
 - **Farblesung:** `m_action_color = g_cs->getColor()` im selben Loop wie `wide_bar_active()` / `small_line_active()` — vor `setVelocity(0)` → Sensor steht noch über Karte
 
 ## Stack
@@ -52,7 +54,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 
 ## Verboten
 - `TEST_LINE_FOLLOWER_FAST`-Parameter ohne ausdrückliche Anfrage ändern — er läuft stabil ("nobody touches the program", Commit 183603b)
-- PB_9 als DigitalOut verwenden, wenn LINE_FOLLOWER aktiv ist — PB_9 ist I2C-SDA der SensorBar → `led1` muss dann auf PB_10
+- PB_9 oder PB_10 als DigitalOut für LED verwenden — `led1` ist entfernt, `user_led` (LED1) übernimmt überall
 - `TIM1->BDTR |= TIM_BDTR_MOE` entfernen — MOE muss manuell gesetzt werden (STM32-Hardware-Requirement)
 - `PERFORM_GPA_MEAS` und `PERFORM_CHIRP_MEAS` gleichzeitig aktivieren (DCMotor.h: "only use GPA or Chirp, not both")
 - Mehr als ein `#define` in `test_config.h` gleichzeitig aktiv lassen
@@ -64,6 +66,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 | D1  | PC_8      | 180° Servo A |
 | D2  | PC_6      | 180° Servo B |
 | D3  | PB_12     | 360° Servo |
+| A2  | PC_5      | Endschalter 360°-Servo (Drehteller) |
 | A3  | PB_1      | IR-Sensor |
 | D14/D15 | PB_9 / PB_8 | Line-Follower Array (I2C SDA/SCL) |
 | —   | PB_3      | Farbsensor – Freq Out |
@@ -83,7 +86,9 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ROBOTER_V8` ist aktuell aktiv in `test_config.h`; v7 als Backup (funktionierend), v1–v6 erhalten
+- `TEST_ENDSCHALTER` ist aktuell aktiv in `test_config.h` — vor Roboter-Test auf `TEST_ROBOTER_V8` zurücksetzen
+- `led1` (PB_9/PB_10) aus `main.cpp` entfernt (2026-04-13) — `user_led` (LED1) übernimmt in allen Test-Funktionen
+- Endschalter 360°-Servo: A2 (PC_5), `DigitalIn` PullUp, getestet — noch nicht in roboter_v8 integriert
 - roboter_v8: SMALL_REENTRY_GUARD=100 (2s) verhindert Stopp auf Farbkarte statt echtem Querbalken
 - `src/test_files/` Unterordner erstellt — alle `test_*.cpp/.h` darin; `roboter_v*.cpp/.h` bleiben in `src/`
 - `test_config.h` neu gegliedert: Roboter oben → Farbsensor → Hardware Tests → Liniensensor → Sonstiges
@@ -108,13 +113,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Robustheit testen:** `TEST_ROBOTER_V8` flashen → mindestens 10 Durchgänge mit allen 4 Farben auf dem echten Parcours → Fehlerrate notieren → falls noch Fehlklassifikationen: Serial Monitor `hue=` Wert der fehlerhaften Karte ablesen und Hue-Grenze in `lib/ColorSensor/ColorSensor.cpp` minimal anpassen
+1. **TEST_ROBOTER_V8 reaktivieren:** In `test_config.h` `#define TEST_ENDSCHALTER` auskommentieren und `#define TEST_ROBOTER_V8` einkommentieren → flashen → Roboter-Durchgang testen
+2. **Endschalter in roboter_v8 integrieren:** `DigitalIn sw(PC_5, PullUp)` einbauen, bei fallender Flanke Servo stoppen statt zeitbasiert warten
+3. **Robustheit testen:** Mindestens 10 Durchgänge mit allen 4 Farben auf dem echten Parcours → Fehlerrate notieren
 
 ## Offene Fragen
 - Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt — aktuell fährt Servo einfach auf 1.0f und zurück)
 - Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?
 - IR-Sensor noch nicht kalibriert — wird für spätere Integration benötigt
 - Kalibrierung mit echter Matte verschiebt alle Hue-Werte → nicht empfohlen ohne gleichzeitige Hue-Grenzen-Anpassung
+- Endschalter (A2, PC_5) noch nicht in roboter_v8 integriert — wann soll der 360°-Servo per Endschalter statt Zeitbasis gestoppt werden?
 
 ## Session-Routine
 Am Ende jeder Session:

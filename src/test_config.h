@@ -23,6 +23,7 @@
 // #define TEST_IR
 // #define TEST_DC_MOTOR
 // #define TEST_DREHSERVO_90
+// #define TEST_ENDSCHALTER
 
 // --- Liniensensor Tests ---
 // #define TEST_LINE_FOLLOWER

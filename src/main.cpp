@@ -153,6 +153,13 @@
     #define TEST_RESET(led)   drehservo_90_reset(led)
     #define TEST_PRINT()      drehservo_90_print()
 
+#elif defined(TEST_ENDSCHALTER)
+    #include "test_files/test_endschalter.h"
+    #define TEST_INIT(lps)    endschalter_init(lps)
+    #define TEST_TASK(led)    endschalter_task(led)
+    #define TEST_RESET(led)   endschalter_reset(led)
+    #define TEST_PRINT()      endschalter_print()
+
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
 #endif
@@ -172,12 +179,6 @@ int main()
     Timer main_task_timer;
 
     DigitalOut user_led(LED1);
-#if defined(TEST_LINE_FOLLOWER) || defined(TEST_LINE_FOLLOWER_SLOW) || defined(TEST_LINE_FOLLOWER_FAST) || defined(TEST_LINE_FOLLOWER_BACKWARD) || defined(TEST_ALL) || defined(TEST_ROBOTER_V1) || defined(TEST_ROBOTER_V2) || defined(TEST_ROBOTER_V3) || defined(TEST_ROBOTER_V4) || defined(TEST_ROBOTER_V5) || defined(TEST_ROBOTER_V6) || defined(TEST_ROBOTER_V7) || defined(TEST_ROBOTER_V8)
-    // PB_9 = I2C1 SDA for sensor bar — use a different pin to avoid conflict
-    DigitalOut led1(PB_10);
-#else
-    DigitalOut led1(PB_9);
-#endif
 
     const int loops_per_second = static_cast<int>(
         ceilf(1.0f / (0.001f * static_cast<float>(main_task_period_ms))));
@@ -190,11 +191,11 @@ int main()
         main_task_timer.reset();
 
         if (do_execute_main_task) {
-            TEST_TASK(led1);
+            TEST_TASK(user_led);
         } else {
             if (do_reset_all_once) {
                 do_reset_all_once = false;
-                TEST_RESET(led1);
+                TEST_RESET(user_led);
             }
         }
 
