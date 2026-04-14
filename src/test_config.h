@@ -1,16 +1,19 @@
 #pragma once
 
+// CargoSweep — Test-Konfiguration
 // ==========================================
 
-// --- Roboter (Hauptprogramm) ---
-// #define TEST_ROBOTER_V1
-// #define TEST_ROBOTER_V2
-// #define TEST_ROBOTER_V3
-// #define TEST_ROBOTER_V4
-// #define TEST_ROBOTER_V5
-// #define TEST_ROBOTER_V6
-// #define TEST_ROBOTER_V7
-#define TEST_ROBOTER_V8
+// --- CargoSweep (Hauptprogramm) ---
+// #define PROTOTYPE_01_V1
+// #define PROTOTYPE_01_V2
+// #define PROTOTYPE_01_V3
+// #define PROTOTYPE_01_V4
+// #define PROTOTYPE_01_V5
+// #define PROTOTYPE_01_V6
+// #define PROTOTYPE_01_V7
+// #define PROTOTYPE_01_V8
+// #define PROTOTYPE_02_V9
+#define PROTOTYPE_02_V10
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
 // #define TEST_COLOR_SENSOR

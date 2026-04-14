@@ -1,8 +1,8 @@
 #include "test_config.h"
 
-#ifdef TEST_ROBOTER_V1
+#ifdef PROTOTYPE_01_V1
 
-#include "roboter_v1.h"
+#include "prototype01_v1.h"
 
 // ---------------------------------------------------------------------------
 // Motor / geometry parameters (Gear 100:1, KN = 140/12)
@@ -259,4 +259,4 @@ void roboter_v1_print()
            g_M2->getVelocity());
 }
 
-#endif // TEST_ROBOTER_V1
+#endif // PROTOTYPE_01_V1

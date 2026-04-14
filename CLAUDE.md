@@ -1,28 +1,29 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-13)
-- **Aktiv in test_config.h:** `TEST_ENDSCHALTER` — muss auf `TEST_ROBOTER_V8` zurückgesetzt werden vor nächstem Roboter-Test
-- **roboter_v8** = aktive Roboter-Version, funktioniert vollständig; **roboter_v7** = Backup (nicht löschen)
-- **Neu (heute):** `test_endschalter.cpp/.h` erstellt — Endschalter für 360°-Servo (Drehteller) an **A2 (PC_5)**, getestet, funktioniert
-  - `DigitalIn` mit internem PullUp, Polling alle 20ms, fallende Flanke = gedrückt
-  - A0 (PC_2) war physisch zu eng → A2 (PC_5) gewählt; A1 (PC_3) belegt durch ColorSensor LED Enable
-- **Aufgeräumt (heute):** `led1` (PB_9/PB_10) aus `main.cpp` entfernt — `user_led` (LED1 onboard) übernimmt überall
-- **Dateistruktur:** Alle `test_*`-Files in `src/test_files/`; `roboter_v*.cpp/.h` bleiben direkt in `src/`
-- **Servo-Logik (v8):**
-  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, **3s** (`SERVO_ROT_LOOPS=150`)
-  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, **1s** (`SERVO_GELB_LOOPS=50`)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-14)
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V10` — läuft, Linienfolgen funktioniert korrekt
+- **roboter_v10** = aktive Version (Kopie von v9 mit gelösten Motor/Sensor-Problemen); **roboter_v9** = Backup
+- **Neues Chassis (heute):** Motoren physisch getauscht — rechter Motor jetzt an M1-Port, linker Motor an M2-Port → `VEL_SIGN=1.0f`, kein Pointer-Swap
+- **Linienfolgen-Fix (heute, mehrstufig):**
+  - Root cause 1: Linienfolgezuweisung invertiert → positives Feedback → stabiles Tracking bei b7 statt Zentrum
+  - Root cause 2: KP=2.8/KP_NL=4.55 verursachten Rückwärtslauf eines Rades bei grossem Eintrittswinkel aus TURN_SPOT → 180°-Spin
+  - Fix 1: TURN_SPOT korrigiert auf CCW (`g_M1=−TURN`, `g_M2=+TURN`)
+  - Fix 2: Bei TURN_SPOT→STATE_FOLLOW Gains auf `KP_FOLLOW=0.8f` / `KP_NL_FOLLOW=0.5f` reduziert (verhindert Rückwärtslauf)
+  - Fix 3: Alle 4 Linienfolgezustände: `g_cmd_M1 = getLeftWheelVelocity()`, `g_cmd_M2 = getRightWheelVelocity()` (gekreuzt, weil Sensorbalken umgekehrt montiert)
+  - Fix 4: STATE_REAL_FOLLOW und STATE_SMALL_FOLLOW stellen volle Gains (2.8/4.55) beim Eintritt wieder her
+- **Motor-Zuordnung v10:** M1 = physisch rechts (PB_13/PA_6/PC_7), M2 = physisch links (PA_9/PB_6/PB_7)
+- **Roboter-Parameter v10:** D_WHEEL=0.0291m, B_WHEEL=0.1493m, BAR_DIST=0.182m, MAX_SPEED=1.0 RPS, SENSOR_THRESHOLD=0.40f
+- **Servo-Logik (v10, identisch v8):**
+  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, 3s (`SERVO_ROT_LOOPS=150`)
+  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, 1s (`SERVO_GELB_LOOPS=50`)
   - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A (PC_8), nach 1s zurück
   - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B (PC_6), nach 1s zurück
   - Default: `g_servo->enable(0.25f)` — 360° Fallback, 1s
 - **Timing:** `CROSSING_STOP_LOOPS=200` (4s), `SMALL_CROSSING_STOP_LOOPS=200` (4s), `SMALL_REENTRY_GUARD=100` (2s)
-- **Hue-Grenzen (lib/ColorSensor/ColorSensor.cpp):**
-  - ROT: 0°–20° und 330°–360°
-  - GELB: 20°–80°
-  - GRÜN: 80°–**215°** (war 175° — verbreitert gegen BLAU-Verwechslung)
-  - BLAU: 215°–280°
+- **Farberkennung:** Mechanik wurde geändert — Farbsensor steht nun während `CROSSING_STOP` über der Karte (statt während Fahrt). Code liest `g_cs->getColor()` weiterhin bei `wide_bar_active()` / `small_line_active()` vor `setVelocity(0)` — ob Farberkennung im Stand zuverlässig funktioniert wurde noch NICHT getestet
+- **Hue-Grenzen (lib/ColorSensor/ColorSensor.cpp):** ROT 0°–20°/330°–360°, GELB 20°–80°, GRÜN 80°–215°, BLAU 215°–280°
 - **Kalibrierung:** Original (weisses Papier) aktiv — Matte-Kalibrierung verschiebt Hue-Werte → nicht machen
-- **Farblesung:** `m_action_color = g_cs->getColor()` im selben Loop wie `wide_bar_active()` / `small_line_active()` — vor `setVelocity(0)` → Sensor steht noch über Karte
 
 ## Stack
 - Sprache: C++14
@@ -86,25 +87,20 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `TEST_ENDSCHALTER` ist aktuell aktiv in `test_config.h` — vor Roboter-Test auf `TEST_ROBOTER_V8` zurücksetzen
+- `PROTOTYPE_02_V10` ist aktuell aktiv in `test_config.h`
 - `led1` (PB_9/PB_10) aus `main.cpp` entfernt (2026-04-13) — `user_led` (LED1) übernimmt in allen Test-Funktionen
-- Endschalter 360°-Servo: A2 (PC_5), `DigitalIn` PullUp, getestet — noch nicht in roboter_v8 integriert
-- roboter_v8: SMALL_REENTRY_GUARD=100 (2s) verhindert Stopp auf Farbkarte statt echtem Querbalken
-- `src/test_files/` Unterordner erstellt — alle `test_*.cpp/.h` darin; `roboter_v*.cpp/.h` bleiben in `src/`
-- `test_config.h` neu gegliedert: Roboter oben → Farbsensor → Hardware Tests → Liniensensor → Sonstiges
+- Endschalter 360°-Servo: A2 (PC_5), `DigitalIn` PullUp, getestet — noch nicht in roboter_v10 integriert
+- roboter_v10: SMALL_REENTRY_GUARD=100 (2s) verhindert Stopp auf Farbkarte statt echtem Querbalken
+- `src/test_files/` Unterordner erstellt — alle `test_*.cpp/.h` darin; Roboter-Files in `src/` als `prototype01_vX.cpp/.h` (v1–v8) und `prototype02_vX.cpp/.h` (v9–v10)
 - Hue-Grenze GRÜN: 215° (nicht 175°) — NIEMALS zurücksetzen, GRÜN→BLAU-Fehler kehrt sonst zurück
 - Kalibrierung mit echter Matte NICHT machen ohne gleichzeitige Hue-Grenzen-Anpassung — verschiebt alle Werte
-- Neukalibierung mit Matte getestet: GRÜN wurde als GELB erkannt → sofort zurückgesetzt auf Paper-Kalibrierung
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
-- `test_servo_calib`: Non-blocking stdin via `mbed::mbed_file_handle(STDIN_FILENO)->set_blocking(false)` + `getchar()` == EOF als No-Input-Guard
-- `test_servo_all`: 360° Phasen alle 5s wechseln: CW=0.35f, Stop=0.50f, CCW=0.65f (Standardwerte vor Kalibrierung)
 - `TEST_LINE_FOLLOWER_FAST` ist stabil und funktioniert (Commit 183603b) — nicht anfassen
 - Gear Ratio: 100:1 verbaut (`USE_GEAR_RATIO_78 = false`), KN = 140/12 ≈ 11.67 rpm/V
-- `VEL_SIGN = -1.0f` für beide Motoren (physikalische Einbaurichtung beider Motoren invertiert)
+- v10: `VEL_SIGN=1.0f`, M1=physisch rechts, M2=physisch links (nach physischem Motortausch)
+- v10: Linienfolgezuweisung gekreuzt: `g_cmd_M1=getLeftWheelVelocity()`, `g_cmd_M2=getRightWheelVelocity()` (Sensorbalken umgekehrt montiert)
+- v10: STATE_FOLLOW Eintritt mit niedrigen Gains (KP_FOLLOW=0.8f, KP_NL_FOLLOW=0.5f), STATE_REAL/SMALL_FOLLOW stellen KP=2.8/KP_NL=4.55 wieder her
 - SensorBar I2C1: SDA = PB_9, SCL = PB_8
-- Physikalische Roboter-Parameter: D_WHEEL=0.0393m, B_WHEEL=0.179m, BAR_DIST=0.1836m
-- Regler FAST: KP=4.0, KP_NL=15.0, MAX_SPEED=3.5 RPS
-- Regler SLOW: KP=3.0, KP_NL=10.0, MAX_SPEED=0.5 RPS
 - Eigen-Lib: `EIGEN_NO_DEBUG` + `EIGEN_DONT_VECTORIZE` (Overhead-Reduktion auf MCU)
 
 ## Projekt-Kontext
@@ -113,16 +109,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **TEST_ROBOTER_V8 reaktivieren:** In `test_config.h` `#define TEST_ENDSCHALTER` auskommentieren und `#define TEST_ROBOTER_V8` einkommentieren → flashen → Roboter-Durchgang testen
-2. **Endschalter in roboter_v8 integrieren:** `DigitalIn sw(PC_5, PullUp)` einbauen, bei fallender Flanke Servo stoppen statt zeitbasiert warten
-3. **Robustheit testen:** Mindestens 10 Durchgänge mit allen 4 Farben auf dem echten Parcours → Fehlerrate notieren
+1. **Kurventuning v10:** KP / KP_NL / MAX_SPEED in `roboter_v10.cpp` so tunen, dass der Roboter Kurven sauber durchfährt ohne die Linie zu verlieren — aktuelle Werte (KP=2.8, KP_NL=4.55, MAX_SPEED=1.0) auf neuem Chassis noch nicht getestet
+2. **Gesamtprogramm zum Laufen bringen:** Nach Kurventuning kompletten Parcours fahren — alle 4 Querbalken + 4 kleine Linien + Servo-Aktionen in richtiger Reihenfolge
+3. **Farbsensor im Stand auf schwarzem Strich prüfen:** Testen ob `g_cs->getColor()` zuverlässig erkennt wenn Roboter steht UND Sensor über dem schwarzen Strich (Linie) ist — nicht über der Farbkarte
 
 ## Offene Fragen
-- Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt — aktuell fährt Servo einfach auf 1.0f und zurück)
+- Funktioniert `g_cs->getColor()` zuverlässig wenn Roboter steht (Mechanik geändert)? Bisher nur während Fahrt getestet
+- Muss der Farblesezeitpunkt in `CROSSING_STOP` verschoben werden (z.B. nach 0.5s Stillstand)?
+- Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt)
 - Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?
-- IR-Sensor noch nicht kalibriert — wird für spätere Integration benötigt
-- Kalibrierung mit echter Matte verschiebt alle Hue-Werte → nicht empfohlen ohne gleichzeitige Hue-Grenzen-Anpassung
-- Endschalter (A2, PC_5) noch nicht in roboter_v8 integriert — wann soll der 360°-Servo per Endschalter statt Zeitbasis gestoppt werden?
+- Endschalter (A2, PC_5) noch nicht in roboter_v10 integriert — wann soll der 360°-Servo per Endschalter statt Zeitbasis gestoppt werden?
 
 ## Session-Routine
 Am Ende jeder Session:

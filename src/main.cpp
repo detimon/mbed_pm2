@@ -1,3 +1,4 @@
+// CargoSweep — Hauptprogramm (Nucleo F446RE + PES Board)
 #include "mbed.h"
 #include "PESBoardPinMap.h"
 #include "DebounceIn.h"
@@ -90,61 +91,75 @@
     #define TEST_RESET(led)   line_follower_backward_reset(led)
     #define TEST_PRINT()      line_follower_backward_print()
 
-#elif defined(TEST_ROBOTER_V1)
-    #include "roboter_v1.h"
+#elif defined(PROTOTYPE_01_V1)
+    #include "prototype01_v1.h"
     #define TEST_INIT(lps)    roboter_v1_init(lps)
     #define TEST_TASK(led)    roboter_v1_task(led)
     #define TEST_RESET(led)   roboter_v1_reset(led)
     #define TEST_PRINT()      roboter_v1_print()
 
-#elif defined(TEST_ROBOTER_V2)
-    #include "roboter_v2.h"
+#elif defined(PROTOTYPE_01_V2)
+    #include "prototype01_v2.h"
     #define TEST_INIT(lps)    roboter_v2_init(lps)
     #define TEST_TASK(led)    roboter_v2_task(led)
     #define TEST_RESET(led)   roboter_v2_reset(led)
     #define TEST_PRINT()      roboter_v2_print()
 
-#elif defined(TEST_ROBOTER_V3)
-    #include "roboter_v3.h"
+#elif defined(PROTOTYPE_01_V3)
+    #include "prototype01_v3.h"
     #define TEST_INIT(lps)    roboter_v3_init(lps)
     #define TEST_TASK(led)    roboter_v3_task(led)
     #define TEST_RESET(led)   roboter_v3_reset(led)
     #define TEST_PRINT()      roboter_v3_print()
 
-#elif defined(TEST_ROBOTER_V4)
-    #include "roboter_v4.h"
+#elif defined(PROTOTYPE_01_V4)
+    #include "prototype01_v4.h"
     #define TEST_INIT(lps)    roboter_v4_init(lps)
     #define TEST_TASK(led)    roboter_v4_task(led)
     #define TEST_RESET(led)   roboter_v4_reset(led)
     #define TEST_PRINT()      roboter_v4_print()
 
-#elif defined(TEST_ROBOTER_V5)
-    #include "roboter_v5.h"
+#elif defined(PROTOTYPE_01_V5)
+    #include "prototype01_v5.h"
     #define TEST_INIT(lps)    roboter_v5_init(lps)
     #define TEST_TASK(led)    roboter_v5_task(led)
     #define TEST_RESET(led)   roboter_v5_reset(led)
     #define TEST_PRINT()      roboter_v5_print()
 
-#elif defined(TEST_ROBOTER_V6)
-    #include "roboter_v6.h"
+#elif defined(PROTOTYPE_01_V6)
+    #include "prototype01_v6.h"
     #define TEST_INIT(lps)    roboter_v6_init(lps)
     #define TEST_TASK(led)    roboter_v6_task(led)
     #define TEST_RESET(led)   roboter_v6_reset(led)
     #define TEST_PRINT()      roboter_v6_print()
 
-#elif defined(TEST_ROBOTER_V7)
-    #include "roboter_v7.h"
+#elif defined(PROTOTYPE_01_V7)
+    #include "prototype01_v7.h"
     #define TEST_INIT(lps)    roboter_v7_init(lps)
     #define TEST_TASK(led)    roboter_v7_task(led)
     #define TEST_RESET(led)   roboter_v7_reset(led)
     #define TEST_PRINT()      roboter_v7_print()
 
-#elif defined(TEST_ROBOTER_V8)
-    #include "roboter_v8.h"
+#elif defined(PROTOTYPE_01_V8)
+    #include "prototype01_v8.h"
     #define TEST_INIT(lps)    roboter_v8_init(lps)
     #define TEST_TASK(led)    roboter_v8_task(led)
     #define TEST_RESET(led)   roboter_v8_reset(led)
     #define TEST_PRINT()      roboter_v8_print()
+
+#elif defined(PROTOTYPE_02_V9)
+    #include "prototype02_v9.h"
+    #define TEST_INIT(lps)    roboter_v9_init(lps)
+    #define TEST_TASK(led)    roboter_v9_task(led)
+    #define TEST_RESET(led)   roboter_v9_reset(led)
+    #define TEST_PRINT()      roboter_v9_print()
+
+#elif defined(PROTOTYPE_02_V10)
+    #include "prototype02_v10.h"
+    #define TEST_INIT(lps)    roboter_v10_init(lps)
+    #define TEST_TASK(led)    roboter_v10_task(led)
+    #define TEST_RESET(led)   roboter_v10_reset(led)
+    #define TEST_PRINT()      roboter_v10_print()
 
 #elif defined(TEST_DREHSERVO_90)
     #include "test_files/test_drehservo_90.h"

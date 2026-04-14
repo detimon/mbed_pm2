@@ -1,8 +1,8 @@
 #include "test_config.h"
 
-#ifdef TEST_ROBOTER_V5
+#ifdef PROTOTYPE_01_V8
 
-#include "roboter_v5.h"
+#include "prototype01_v8.h"
 #include "Servo.h"
 
 // ---------------------------------------------------------------------------
@@ -43,17 +43,18 @@ static const int   STOP_GUARD      = 75;   // 1.5 s guard — prevents immediate
 // Real program constants
 // ---------------------------------------------------------------------------
 static const int   TOTAL_CROSSINGS      = 4;    // 4 wide angled bars to process
-// *** PLACEHOLDER — replace with arm/servo sequence later ***
-static const int   CROSSING_STOP_LOOPS  = 100;  // 2 s stop at each wide crossing
+static const int   CROSSING_STOP_LOOPS  = 200;  // 4 s total (covers ROT 3s + margin)
 
 static const int   SMALL_FOLLOW_START_GUARD  = 525; // 10.5 s — ignoriert b3/b4/b5 nach 4. Querbalken
+static const int   SMALL_REENTRY_GUARD       = 100; // 2.0 s — skip past colour card after each small stop
 static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide bars
-// *** PLACEHOLDER — replace with arm/servo sequence later ***
-static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s stop at each small line
+static const int   SMALL_CROSSING_STOP_LOOPS = 200; // 4 s total (covers ROT 3s + margin)
 
-static const int   SERVO_RUN_LOOPS  = 25;   // 0.5 s servo rotation at each crossing
+static const int   SERVO_ROT_LOOPS        = 150; // 3.0 s spin for ROT
+static const int   SERVO_GELB_LOOPS       = 50;  // 1.0 s spin for GELB
+static const int   SERVO_1S_LOOPS         = 50;  // 1 s for 180° servo extend/retract phase
 
-static const float SENSOR_THRESHOLD = 0.5f;
+static const float SENSOR_THRESHOLD  = 0.5f;
 
 // ---------------------------------------------------------------------------
 // States
@@ -86,8 +87,10 @@ static DCMotor*      g_M1 = nullptr;
 static DCMotor*      g_M2 = nullptr;
 static DigitalOut*   g_en = nullptr;
 static LineFollower* g_lf = nullptr;
-static ColorSensor*  g_cs    = nullptr;
-static Servo*        g_servo = nullptr;
+static ColorSensor*  g_cs       = nullptr;
+static Servo*        g_servo    = nullptr;  // 360° servo — D3 (PB_12)
+static Servo*        g_servo_D1 = nullptr;  // 180° servo A — D1 (PC_8)
+static Servo*        g_servo_D2 = nullptr;  // 180° servo B — D2 (PC_6)
 
 static State m_state           = STATE_BLIND;
 static int   m_straight_ctr    = 0;
@@ -109,15 +112,18 @@ static float g_cmd_M1          = 0.0f;
 static float g_cmd_M2          = 0.0f;
 
 static int   m_current_color        = 0;  // gecachte Farbe (für print)
-static int   m_prev_color           = 0;  // vorherige Farbe (rising-edge)
-static int   m_led_color            = 0;  // letzte signifikante Farbe (bleibt gesetzt)
+static int   m_prev_color           = 0;  // vorherige Farbe (rising-edge, für LED)
+static int   m_led_color            = 0;  // letzte signifikante Farbe (LED-Blinkcode)
 static int   m_led_ctr              = 0;  // 0–99, 2-Sekunden-Periode (50 Hz)
 static int   m_color_log[8]         = {0, 0, 0, 0, 0, 0, 0, 0};
 static int   m_color_log_ctr        = 0;
+static int   m_action_color         = 0;    // colour read at bar/line detection moment
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Returns the most-voted significant colour since last reset, then clears all votes.
 static bool all_sensors_active()
 {
     for (int i = 0; i < 8; i++) {
@@ -133,7 +139,6 @@ static bool center_sensors_active()
            g_lf->getAvgBit(4) >= SENSOR_THRESHOLD;
 }
 
-// Sensoren 1–7: mind. 5 von 7 aktiv — tolerant gegenüber leichtem Winkel/Averaging-Lag
 static bool wide_bar_active()
 {
     int count = 0;
@@ -157,7 +162,7 @@ static bool small_line_active()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v5_init(int loops_per_second)
+void roboter_v8_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -168,16 +173,22 @@ void roboter_v5_init(int loops_per_second)
                                      motor_M1.getMaxPhysicalVelocity());
     static ColorSensor colorSensor(PB_3, PC_3, PA_4, PB_0, PC_1, PC_0);
     static Servo servo_360(PB_12);
+    static Servo servo_D1(PC_8);
+    static Servo servo_D2(PC_6);
 
-    g_M1    = &motor_M1;
-    g_M2    = &motor_M2;
-    g_en    = &enable_motors;
-    g_lf    = &lineFollower;
-    g_cs    = &colorSensor;
-    g_servo = &servo_360;
+    g_M1       = &motor_M1;
+    g_M2       = &motor_M2;
+    g_en       = &enable_motors;
+    g_lf       = &lineFollower;
+    g_cs       = &colorSensor;
+    g_servo    = &servo_360;
+    g_servo_D1 = &servo_D1;
+    g_servo_D2 = &servo_D2;
     g_cs->setCalibration();
     g_cs->switchLed(ON);
     g_servo->calibratePulseMinMax(0.050f, 0.1050f);
+    g_servo_D1->calibratePulseMinMax(0.050f, 0.1050f);
+    g_servo_D2->calibratePulseMinMax(0.050f, 0.1050f);
 
     g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
     g_lf->setMaxWheelVelocity(MAX_SPEED);
@@ -206,12 +217,13 @@ void roboter_v5_init(int loops_per_second)
     m_led_color            = 0;
     m_led_ctr              = 0;
     m_color_log_ctr        = 0;
+    m_action_color         = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v5_task(DigitalOut& led)
+void roboter_v8_task(DigitalOut& led)
 {
     // --- Farbsensor ---
     m_current_color  = g_cs->getColor();
@@ -398,12 +410,13 @@ void roboter_v5_task(DigitalOut& led)
             float ramp = (m_approach_ctr < ACCEL_LOOPS)
                              ? (static_cast<float>(m_approach_ctr) / static_cast<float>(ACCEL_LOOPS))
                              : 1.0f;
-            float spd = VEL_SIGN * APPROACH_SPEED * ramp;
+            float spd  = VEL_SIGN * APPROACH_SPEED * ramp;
             g_M1->setVelocity(spd);
             g_M2->setVelocity(spd);
             m_approach_ctr++;
 
             if (m_approach_ctr > ACCEL_LOOPS && wide_bar_active()) {
+                m_action_color = g_cs->getColor(); // read NOW — sensor is over the card
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_crossings_left--;
@@ -418,6 +431,7 @@ void roboter_v5_task(DigitalOut& led)
         // Stops at each of the 4 angled bars
         // ----------------------------------------------------------------
         case STATE_REAL_FOLLOW: {
+            g_lf->setMaxWheelVelocity(MAX_SPEED);
             float ramp = (m_real_accel_ctr < FOLLOW_ACCEL_LOOPS)
                              ? (static_cast<float>(m_real_accel_ctr + 1) / static_cast<float>(FOLLOW_ACCEL_LOOPS))
                              : 1.0f;
@@ -430,6 +444,7 @@ void roboter_v5_task(DigitalOut& led)
             if (m_guard_ctr > 0) {
                 m_guard_ctr--;
             } else if (wide_bar_active()) {
+                m_action_color = g_cs->getColor(); // read NOW — sensor is over the card
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_crossings_left--;
@@ -440,7 +455,7 @@ void roboter_v5_task(DigitalOut& led)
         }
 
         // ----------------------------------------------------------------
-        // CROSSING_STOP: 5 s stop at each wide bar
+        // CROSSING_STOP: stop → servo (colour already read at bar detection)
         // *** PLACEHOLDER — swap out CROSSING_STOP_LOOPS and this state's
         //     body later for arm extension, rotation, etc. ***
         // After the 4th wide bar → continue to small lines, else resume
@@ -449,18 +464,36 @@ void roboter_v5_task(DigitalOut& led)
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
 
-            // Servo: start rotating on first loop, stop after 1 s
-            if (m_crossing_ctr == CROSSING_STOP_LOOPS)
-                g_servo->enable(0.25f);  // full rotation right
-            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_RUN_LOOPS)
-                g_servo->disable();
+            // Entry: fire servo — colour was read at bar detection moment
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS) {
+                switch (m_action_color) {
+                    case 3:  g_servo->enable(0.10f);    break; // ROT  — D3 schnell
+                    case 4:  g_servo->enable(0.35f);    break; // GELB — D3 langsam
+                    case 5:  g_servo_D1->enable(1.0f);  break; // GRÜN — D1 ausfahren
+                    case 7:  g_servo_D2->enable(1.0f);  break; // BLAU — D2 ausfahren
+                    default: g_servo->enable(0.25f);    break; // kein Signal — 360° fallback
+                }
+            }
+            // Stop ROT servo after 3 s, GELB after 1 s
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_ROT_LOOPS && m_action_color == 3) g_servo->disable();
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_GELB_LOOPS && m_action_color == 4) g_servo->disable();
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_GELB_LOOPS && m_action_color == 0) g_servo->disable(); // fallback
+            // Retract 180° servo after 1 s
+            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_1S_LOOPS) {
+                if (m_action_color == 5) g_servo_D1->setPulseWidth(0.0f);
+                if (m_action_color == 7) g_servo_D2->setPulseWidth(0.0f);
+            }
+            if (m_crossing_ctr == 1) {
+                if (m_action_color == 5) g_servo_D1->disable();
+                if (m_action_color == 7) g_servo_D2->disable();
+            }
 
             m_crossing_ctr--;
             if (m_crossing_ctr <= 0) {
                 if (m_crossings_left == 0) {
                     // all 4 wide bars done → move on to small lines
                     m_small_crossings_left = TOTAL_SMALL_CROSSINGS;
-                    m_guard_ctr            = SMALL_FOLLOW_START_GUARD; // 10.5 s ignoriert b3/b4/b5
+                    m_guard_ctr            = SMALL_FOLLOW_START_GUARD;
                     m_small_accel_ctr      = 0;
                     m_state                = STATE_SMALL_FOLLOW;
                 } else {
@@ -480,6 +513,7 @@ void roboter_v5_task(DigitalOut& led)
         // Triggered when sensors 2–5 all see the line
         // ----------------------------------------------------------------
         case STATE_SMALL_FOLLOW: {
+            g_lf->setMaxWheelVelocity(MAX_SPEED);
             float ramp = (m_small_accel_ctr < ACCEL_LOOPS)
                              ? (static_cast<float>(m_small_accel_ctr + 1) / static_cast<float>(ACCEL_LOOPS))
                              : 1.0f;
@@ -492,6 +526,7 @@ void roboter_v5_task(DigitalOut& led)
             if (m_guard_ctr > 0) {
                 m_guard_ctr--;
             } else if (small_line_active()) {
+                m_action_color       = g_cs->getColor(); // read NOW — sensor is over the card
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_small_crossings_left--;
@@ -502,26 +537,43 @@ void roboter_v5_task(DigitalOut& led)
         }
 
         // ----------------------------------------------------------------
-        // SMALL_CROSSING_STOP: 3 s stop at each small line
-        // *** PLACEHOLDER — replace with arm/servo sequence later ***
+        // SMALL_CROSSING_STOP: stop → read colour (1.5 s) → servo → wait
         // After the 4th small line → FINAL_HALT, else resume following
         // ----------------------------------------------------------------
         case STATE_SMALL_CROSSING_STOP:
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
 
-            // Servo: start rotating on first loop, stop after 1 s
-            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS)
-                g_servo->enable(0.25f);  // full rotation
-            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_RUN_LOOPS)
-                g_servo->disable();
+            // Entry: fire servo — colour was read at line detection moment
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS) {
+                switch (m_action_color) {
+                    case 3:  g_servo->enable(0.10f);    break; // ROT  — D3 schnell
+                    case 4:  g_servo->enable(0.35f);    break; // GELB — D3 langsam
+                    case 5:  g_servo_D1->enable(1.0f);  break; // GRÜN — D1 ausfahren
+                    case 7:  g_servo_D2->enable(1.0f);  break; // BLAU — D2 ausfahren
+                    default: g_servo->enable(0.25f);    break; // kein Signal — 360° fallback
+                }
+            }
+            // Stop ROT servo after 3 s, GELB after 1 s
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_ROT_LOOPS && m_action_color == 3) g_servo->disable();
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_GELB_LOOPS && m_action_color == 4) g_servo->disable();
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_GELB_LOOPS && m_action_color == 0) g_servo->disable(); // fallback
+            // Retract 180° servo after 1 s
+            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_1S_LOOPS) {
+                if (m_action_color == 5) g_servo_D1->setPulseWidth(0.0f);
+                if (m_action_color == 7) g_servo_D2->setPulseWidth(0.0f);
+            }
+            if (m_small_crossing_ctr == 1) {
+                if (m_action_color == 5) g_servo_D1->disable();
+                if (m_action_color == 7) g_servo_D2->disable();
+            }
 
             m_small_crossing_ctr--;
             if (m_small_crossing_ctr <= 0) {
                 if (m_small_crossings_left == 0) {
                     m_state = STATE_FINAL_HALT;
                 } else {
-                    m_guard_ctr       = STOP_GUARD;
+                    m_guard_ctr       = SMALL_REENTRY_GUARD;
                     m_small_accel_ctr = 0;
                     m_state           = STATE_SMALL_FOLLOW;
                 }
@@ -536,9 +588,10 @@ void roboter_v5_task(DigitalOut& led)
             g_M2->setVelocity(0.0f);
             break;
     }
+
 }
 
-void roboter_v5_reset(DigitalOut& led)
+void roboter_v8_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
@@ -566,12 +619,15 @@ void roboter_v5_reset(DigitalOut& led)
     m_led_color            = 0;
     m_led_ctr              = 0;
     m_color_log_ctr        = 0;
+    m_action_color         = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_servo->disable();
+    g_servo_D1->disable();
+    g_servo_D2->disable();
     led                    = 0;
 }
 
-void roboter_v5_print()
+void roboter_v8_print()
 {
     const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
                     (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :
@@ -597,22 +653,27 @@ void roboter_v5_print()
            all_sensors_active() ? 1 : 0,
            small_line_active() ? 1 : 0);
 
-    char log_buf[48] = "(none)";
-    if (m_color_log_ctr > 0) {
-        int off = 0;
-        for (int i = 0; i < m_color_log_ctr; i++)
-            off += snprintf(log_buf + off, sizeof(log_buf) - off,
-                            "%s ", ColorSensor::getColorString(m_color_log[i]));
+    // Compute hue from normalised RGB for threshold tuning
+    const float* norm = g_cs->readColorNorm();
+    float rn = norm[0], gn = norm[1], bn = norm[2];
+    float cmax = fmaxf(rn, fmaxf(gn, bn));
+    float cmin = fminf(rn, fminf(gn, bn));
+    float delta = cmax - cmin;
+    float hue = 0.0f;
+    if (delta > 1e-6f) {
+        if (cmax == rn)      hue = 60.0f * fmodf((gn - bn) / delta, 6.0f);
+        else if (cmax == gn) hue = 60.0f * ((bn - rn) / delta + 2.0f);
+        else                 hue = 60.0f * ((rn - gn) / delta + 4.0f);
+        if (hue < 0.0f) hue += 360.0f;
     }
-    printf("Color: %-8s | LED=%s(%d) | log[%d]: %s\n",
+
+    const float* cal = g_cs->readColorCalib();
+    float r0 = cal[0], g0 = cal[1], b0 = cal[2];
+    printf("Color: %-8s hue=%5.1f delta=%.2f r=%.2f g=%.2f b=%.2f | action=%s\n",
            ColorSensor::getColorString(m_current_color),
-           ColorSensor::getColorString(m_led_color),
-           (m_led_color == 3) ? 1 :
-           (m_led_color == 4) ? 2 :
-           (m_led_color == 5) ? 3 :
-           (m_led_color == 7) ? 4 : 0,
-           m_color_log_ctr,
-           log_buf);
+           hue, delta, r0, g0, b0,
+           ColorSensor::getColorString(m_action_color));
 }
 
-#endif // TEST_ROBOTER_V5
+#endif // PROTOTYPE_01_V8
+

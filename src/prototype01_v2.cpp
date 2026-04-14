@@ -1,8 +1,8 @@
 #include "test_config.h"
 
-#ifdef TEST_ROBOTER_V2
+#ifdef PROTOTYPE_01_V2
 
-#include "roboter_v2.h"
+#include "prototype01_v2.h"
 
 // ---------------------------------------------------------------------------
 // Motor / geometry parameters (Gear 100:1, KN = 140/12)
@@ -244,4 +244,4 @@ void roboter_v2_print()
            g_lf->isLedActive() ? 1 : 0);
 }
 
-#endif // TEST_ROBOTER_V2
+#endif // PROTOTYPE_01_V2

@@ -1,9 +1,8 @@
 #include "test_config.h"
 
-#ifdef TEST_ROBOTER_V4
+#ifdef PROTOTYPE_01_V3
 
-#include "roboter_v4.h"
-#include "Servo.h"
+#include "prototype01_v3.h"
 
 // ---------------------------------------------------------------------------
 // Motor / geometry parameters (Gear 100:1, KN = 140/12)
@@ -40,17 +39,9 @@ static const int   STOP_GUARD      = 75;   // 1.5 s guard — prevents immediate
 // ---------------------------------------------------------------------------
 // Real program constants
 // ---------------------------------------------------------------------------
-static const int   TOTAL_CROSSINGS      = 4;    // 4 wide angled bars to process
+static const int   TOTAL_CROSSINGS      = 4;    // 4 angled bars to process
 // *** PLACEHOLDER — replace with arm/servo sequence later ***
-static const int   CROSSING_STOP_LOOPS  = 100;  // 2 s stop at each wide crossing
-
-static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide bars
-// *** PLACEHOLDER — replace with arm/servo sequence later ***
-static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s stop at each small line
-
-static const int   SERVO_RUN_LOOPS        = 25;  // 0.5 s servo rotation at each crossing
-static const int   COLOR_SHOOT_DELAY_LOOPS = 20;  // 0.4 s delay after color detection before shoot
-static const int   COLOR_SHOOT_RUN_LOOPS   = 25;  // 0.5 s servo run after color-triggered shoot
+static const int   CROSSING_STOP_LOOPS  = 250;  // 5 s stop at each crossing
 
 static const float SENSOR_THRESHOLD = 0.5f;
 
@@ -67,13 +58,10 @@ enum State {
     STATE_BRAKE      = 6,  // smooth decel to 0
     STATE_PAUSE      = 7,  // 0.4 s standstill
     STATE_BACKWARD   = 8,  // 3.9 s backwards (smooth accel, rapid stop)
-    // --- real program: wide bars ---
-    STATE_REAL_FOLLOW         = 9,  // main line follower (wide bars)
-    STATE_CROSSING_STOP       = 10, // 5 s stop at each wide bar (PLACEHOLDER)
-    // --- real program: small lines ---
-    STATE_SMALL_FOLLOW        = 12, // line follower after wide bars
-    STATE_SMALL_CROSSING_STOP = 13, // 3 s stop at each small line (PLACEHOLDER)
-    STATE_FINAL_HALT          = 11  // stop forever after 4th small line
+    // --- real program ---
+    STATE_REAL_FOLLOW    = 9,  // main line follower
+    STATE_CROSSING_STOP  = 10, // 5 s stop at each angled bar (PLACEHOLDER)
+    STATE_FINAL_HALT     = 11  // stop forever after 4th crossing
 };
 
 // ---------------------------------------------------------------------------
@@ -83,8 +71,6 @@ static DCMotor*      g_M1 = nullptr;
 static DCMotor*      g_M2 = nullptr;
 static DigitalOut*   g_en = nullptr;
 static LineFollower* g_lf = nullptr;
-static ColorSensor*  g_cs    = nullptr;
-static Servo*        g_servo = nullptr;
 
 static State m_state           = STATE_BLIND;
 static int   m_straight_ctr    = 0;
@@ -93,23 +79,12 @@ static int   m_brake_ctr       = 0;
 static int   m_pause_ctr       = 0;
 static int   m_backward_ctr    = 0;
 static int   m_guard_ctr       = 0;
-static int   m_crossing_ctr        = 0;  // countdown for current wide crossing stop
-static int   m_crossings_left      = 0;  // wide crossings still to go
-static int   m_small_crossing_ctr  = 0;  // countdown for current small line stop
-static int   m_small_crossings_left = 0; // small lines still to go
+static int   m_crossing_ctr    = 0;  // countdown for current crossing stop
+static int   m_crossings_left  = 0;  // how many crossings still to go
 static float m_brake_start_M1  = 0.0f;
 static float m_brake_start_M2  = 0.0f;
 static float g_cmd_M1          = 0.0f;
 static float g_cmd_M2          = 0.0f;
-
-static int   m_current_color        = 0;  // gecachte Farbe (für print)
-static int   m_prev_color           = 0;  // vorherige Farbe (rising-edge)
-static int   m_led_color            = 0;  // letzte signifikante Farbe (bleibt gesetzt)
-static int   m_led_ctr              = 0;  // 0–99, 2-Sekunden-Periode (50 Hz)
-static int   m_color_log[8]         = {0, 0, 0, 0, 0, 0, 0, 0};
-static int   m_color_log_ctr        = 0;
-static int   m_shot_color           = 0;  // gespeicherte Farbe beim letzten Schuss-Trigger
-static int   m_color_shoot_ctr      = 0;  // >0: aktiv; >RUN_LOOPS: Wartezeit; <=RUN_LOOPS: Servo läuft
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,18 +104,10 @@ static bool center_sensors_active()
            g_lf->getAvgBit(4) >= SENSOR_THRESHOLD;
 }
 
-static bool small_line_active()
-{
-    return g_lf->getAvgBit(2) >= SENSOR_THRESHOLD &&
-           g_lf->getAvgBit(3) >= SENSOR_THRESHOLD &&
-           g_lf->getAvgBit(4) >= SENSOR_THRESHOLD &&
-           g_lf->getAvgBit(5) >= SENSOR_THRESHOLD;
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v4_init(int loops_per_second)
+void roboter_v3_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -149,18 +116,11 @@ void roboter_v4_init(int loops_per_second)
     static DigitalOut enable_motors(PB_ENABLE_DCMOTORS);
     static LineFollower lineFollower(PB_9, PB_8, BAR_DIST, D_WHEEL, B_WHEEL,
                                      motor_M1.getMaxPhysicalVelocity());
-    static ColorSensor colorSensor(PB_3, PC_3, PA_4, PB_0, PC_1, PC_0);
-    static Servo servo_360(PB_12);
 
-    g_M1    = &motor_M1;
-    g_M2    = &motor_M2;
-    g_en    = &enable_motors;
-    g_lf    = &lineFollower;
-    g_cs    = &colorSensor;
-    g_servo = &servo_360;
-    g_cs->setCalibration();
-    g_cs->switchLed(ON);
-    g_servo->calibratePulseMinMax(0.050f, 0.1050f);
+    g_M1 = &motor_M1;
+    g_M2 = &motor_M2;
+    g_en = &enable_motors;
+    g_lf = &lineFollower;
 
     g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
     g_lf->setMaxWheelVelocity(MAX_SPEED);
@@ -175,57 +135,17 @@ void roboter_v4_init(int loops_per_second)
     m_pause_ctr      = 0;
     m_backward_ctr   = 0;
     m_guard_ctr      = 0;
-    m_crossing_ctr         = 0;
-    m_crossings_left       = 0;
-    m_small_crossing_ctr   = 0;
-    m_small_crossings_left = 0;
-    m_brake_start_M1       = 0.0f;
-    m_brake_start_M2       = 0.0f;
-    m_current_color        = 0;
-    m_prev_color           = 0;
-    m_led_color            = 0;
-    m_led_ctr              = 0;
-    m_color_log_ctr        = 0;
-    for (int i = 0; i < 8; i++) m_color_log[i] = 0;
-    m_shot_color           = 0;
-    m_color_shoot_ctr      = 0;
+    m_crossing_ctr   = 0;
+    m_crossings_left = 0;
+    m_brake_start_M1 = 0.0f;
+    m_brake_start_M2 = 0.0f;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v4_task(DigitalOut& led)
+void roboter_v3_task(DigitalOut& led)
 {
-    // --- Farbsensor ---
-    m_current_color  = g_cs->getColor();
-    bool is_sig      = (m_current_color == 3 || m_current_color == 4 ||
-                        m_current_color == 5 || m_current_color == 7);
-    bool was_neutral = (m_prev_color == 0 || m_prev_color == 1 || m_prev_color == 2);
-    if (is_sig && was_neutral) {
-        if (m_color_log_ctr < 8)
-            m_color_log[m_color_log_ctr++] = m_current_color;
-        m_led_color = m_current_color;
-        // start delayed shoot if no shot already in progress
-        if (m_color_shoot_ctr == 0) {
-            m_shot_color      = m_current_color;
-            m_color_shoot_ctr = COLOR_SHOOT_DELAY_LOOPS + COLOR_SHOOT_RUN_LOOPS;
-        }
-    }
-    m_prev_color = m_current_color;
-
-    // --- LED Blinkcode (2-Sekunden-Periode = 100 Loops bei 50 Hz) ---
-    // Kein Signal: schnelles Blinken (alive). ROT=1 GELB=2 GRÜN=3 BLAU=4 Blinks/2s
-    m_led_ctr = (m_led_ctr + 1) % 100;
-    if (m_led_color == 0) {
-        led = !led;
-    } else {
-        int n   = (m_led_color == 3) ? 1 :
-                  (m_led_color == 4) ? 2 :
-                  (m_led_color == 5) ? 3 :
-                  (m_led_color == 7) ? 4 : 0;
-        int pos = m_led_ctr;
-        led     = (n > 0 && pos < n * 16 && (pos % 16) < 8) ? 1 : 0;
-    }
-
+    led = !led;
     *g_en = 1;
 
     switch (m_state) {
@@ -385,82 +305,21 @@ void roboter_v4_task(DigitalOut& led)
             break;
 
         // ----------------------------------------------------------------
-        // CROSSING_STOP: 5 s stop at each wide bar
+        // CROSSING_STOP: 5 s stop at each angled bar
         // *** PLACEHOLDER — swap out CROSSING_STOP_LOOPS and this state's
         //     body later for arm extension, rotation, etc. ***
-        // After the 4th wide bar → continue to small lines, else resume
+        // After the 4th crossing → FINAL_HALT, else resume line following
         // ----------------------------------------------------------------
         case STATE_CROSSING_STOP:
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
-
-            // Servo: start rotating on first loop, stop after 1 s
-            if (m_crossing_ctr == CROSSING_STOP_LOOPS)
-                g_servo->enable(0.25f);  // full rotation right
-            if (m_crossing_ctr == CROSSING_STOP_LOOPS - SERVO_RUN_LOOPS)
-                g_servo->disable();
-
             m_crossing_ctr--;
             if (m_crossing_ctr <= 0) {
                 if (m_crossings_left == 0) {
-                    // all 4 wide bars done → move on to small lines
-                    m_small_crossings_left = TOTAL_SMALL_CROSSINGS;
-                    m_guard_ctr            = STOP_GUARD;
-                    m_state                = STATE_SMALL_FOLLOW;
-                } else {
-                    m_guard_ctr = STOP_GUARD;
-                    m_state     = STATE_REAL_FOLLOW;
-                }
-            }
-            break;
-
-        // ================================================================
-        // SMALL LINES
-        // ================================================================
-
-        // ----------------------------------------------------------------
-        // SMALL_FOLLOW: line follower between the 4 small lines
-        // Triggered when sensors 2–5 all see the line
-        // ----------------------------------------------------------------
-        case STATE_SMALL_FOLLOW:
-            g_cmd_M1 = VEL_SIGN * g_lf->getRightWheelVelocity();
-            g_cmd_M2 = VEL_SIGN * g_lf->getLeftWheelVelocity();
-            g_M1->setVelocity(g_cmd_M1);
-            g_M2->setVelocity(g_cmd_M2);
-
-            if (m_guard_ctr > 0) {
-                m_guard_ctr--;
-            } else if (small_line_active()) {
-                g_M1->setVelocity(0.0f);
-                g_M2->setVelocity(0.0f);
-                m_small_crossings_left--;
-                m_small_crossing_ctr = SMALL_CROSSING_STOP_LOOPS;
-                m_state              = STATE_SMALL_CROSSING_STOP;
-            }
-            break;
-
-        // ----------------------------------------------------------------
-        // SMALL_CROSSING_STOP: 3 s stop at each small line
-        // *** PLACEHOLDER — replace with arm/servo sequence later ***
-        // After the 4th small line → FINAL_HALT, else resume following
-        // ----------------------------------------------------------------
-        case STATE_SMALL_CROSSING_STOP:
-            g_M1->setVelocity(0.0f);
-            g_M2->setVelocity(0.0f);
-
-            // Servo: start rotating on first loop, stop after 1 s
-            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS)
-                g_servo->enable(0.25f);  // full rotation
-            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - SERVO_RUN_LOOPS)
-                g_servo->disable();
-
-            m_small_crossing_ctr--;
-            if (m_small_crossing_ctr <= 0) {
-                if (m_small_crossings_left == 0) {
                     m_state = STATE_FINAL_HALT;
                 } else {
                     m_guard_ctr = STOP_GUARD;
-                    m_state     = STATE_SMALL_FOLLOW;
+                    m_state     = STATE_REAL_FOLLOW;
                 }
             }
             break;
@@ -473,18 +332,9 @@ void roboter_v4_task(DigitalOut& led)
             g_M2->setVelocity(0.0f);
             break;
     }
-
-    // --- Color-triggered shoot: 400 ms delay, then 0.5 s servo run ---
-    if (m_color_shoot_ctr > 0) {
-        if (m_color_shoot_ctr == COLOR_SHOOT_RUN_LOOPS)
-            g_servo->enable(0.25f);
-        else if (m_color_shoot_ctr == 1)
-            g_servo->disable();
-        m_color_shoot_ctr--;
-    }
 }
 
-void roboter_v4_reset(DigitalOut& led)
+void roboter_v3_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
@@ -498,66 +348,32 @@ void roboter_v4_reset(DigitalOut& led)
     m_pause_ctr      = 0;
     m_backward_ctr   = 0;
     m_guard_ctr      = 0;
-    m_crossing_ctr         = 0;
-    m_crossings_left       = 0;
-    m_small_crossing_ctr   = 0;
-    m_small_crossings_left = 0;
-    m_brake_start_M1       = 0.0f;
-    m_brake_start_M2       = 0.0f;
-    m_current_color        = 0;
-    m_prev_color           = 0;
-    m_led_color            = 0;
-    m_led_ctr              = 0;
-    m_color_log_ctr        = 0;
-    for (int i = 0; i < 8; i++) m_color_log[i] = 0;
-    m_shot_color           = 0;
-    m_color_shoot_ctr      = 0;
-    g_servo->disable();
-    led                    = 0;
+    m_crossing_ctr   = 0;
+    m_crossings_left = 0;
+    m_brake_start_M1 = 0.0f;
+    m_brake_start_M2 = 0.0f;
+    led              = 0;
 }
 
-void roboter_v4_print()
+void roboter_v3_print()
 {
-    const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
-                    (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :
-                    (m_state == STATE_TURN_SPOT)           ? "TURN_SPOT   " :
-                    (m_state == STATE_FOLLOW)              ? "FOLLOW      " :
-                    (m_state == STATE_FOLLOW_1S)           ? "FOLLOW_1S   " :
-                    (m_state == STATE_BRAKE)               ? "BRAKE       " :
-                    (m_state == STATE_PAUSE)               ? "PAUSE       " :
-                    (m_state == STATE_BACKWARD)            ? "BACKWARD    " :
-                    (m_state == STATE_REAL_FOLLOW)         ? "REAL_FOLLOW " :
-                    (m_state == STATE_CROSSING_STOP)       ? "CROSS_STOP  " :
-                    (m_state == STATE_SMALL_FOLLOW)        ? "SMALL_FOLLOW" :
-                    (m_state == STATE_SMALL_CROSSING_STOP) ? "SMALL_STOP  " : "FINAL_HALT  ";
-    printf("State: %s | wide=%d small=%d | a=%.3f | M1=%+.2f M2=%+.2f | all8=%d s2345=%d\n",
+    const char* s = (m_state == STATE_BLIND)          ? "BLIND      " :
+                    (m_state == STATE_STRAIGHT)        ? "STRAIGHT   " :
+                    (m_state == STATE_TURN_SPOT)       ? "TURN_SPOT  " :
+                    (m_state == STATE_FOLLOW)          ? "FOLLOW     " :
+                    (m_state == STATE_FOLLOW_1S)       ? "FOLLOW_1S  " :
+                    (m_state == STATE_BRAKE)           ? "BRAKE      " :
+                    (m_state == STATE_PAUSE)           ? "PAUSE      " :
+                    (m_state == STATE_BACKWARD)        ? "BACKWARD   " :
+                    (m_state == STATE_REAL_FOLLOW)     ? "REAL_FOLLOW" :
+                    (m_state == STATE_CROSSING_STOP)   ? "CROSS_STOP " : "FINAL_HALT ";
+    printf("State: %s | cross_left=%d | a=%.3f | M1=%+.2f M2=%+.2f | all8=%d\n",
            s,
            m_crossings_left,
-           m_small_crossings_left,
            g_lf->getAngleRadians(),
            g_M1->getVelocity(),
            g_M2->getVelocity(),
-           all_sensors_active() ? 1 : 0,
-           small_line_active() ? 1 : 0);
-
-    char log_buf[48] = "(none)";
-    if (m_color_log_ctr > 0) {
-        int off = 0;
-        for (int i = 0; i < m_color_log_ctr; i++)
-            off += snprintf(log_buf + off, sizeof(log_buf) - off,
-                            "%s ", ColorSensor::getColorString(m_color_log[i]));
-    }
-    printf("Color: %-8s | LED=%s(%d) | shot=%s ctr=%d | log[%d]: %s\n",
-           ColorSensor::getColorString(m_current_color),
-           ColorSensor::getColorString(m_led_color),
-           (m_led_color == 3) ? 1 :
-           (m_led_color == 4) ? 2 :
-           (m_led_color == 5) ? 3 :
-           (m_led_color == 7) ? 4 : 0,
-           ColorSensor::getColorString(m_shot_color),
-           m_color_shoot_ctr,
-           m_color_log_ctr,
-           log_buf);
+           all_sensors_active() ? 1 : 0);
 }
 
-#endif // TEST_ROBOTER_V4
+#endif // PROTOTYPE_01_V3

@@ -1,8 +1,9 @@
+// CargoSweep — PROTOTYPE_02_V9
 #include "test_config.h"
 
-#ifdef TEST_ROBOTER_V8
+#ifdef PROTOTYPE_02_V9
 
-#include "roboter_v8.h"
+#include "prototype02_v9.h"
 #include "Servo.h"
 
 // ---------------------------------------------------------------------------
@@ -11,17 +12,19 @@
 static const float GEAR_RATIO  = 100.0f;
 static const float KN          = 140.0f / 12.0f;
 static const float VOLTAGE_MAX = 12.0f;
-static const float VEL_SIGN    = -1.0f;
+static const float VEL_SIGN    = 1.0f;  // v8: -1.0f
 
-static const float D_WHEEL  = 0.0393f;
-static const float B_WHEEL  = 0.179f;
-static const float BAR_DIST = 0.1836f;
+static const float D_WHEEL  = 0.0291f;
+static const float B_WHEEL  = 0.1493f;
+static const float BAR_DIST = 0.182f;
 
 // ---------------------------------------------------------------------------
 // Tunable constants
 // ---------------------------------------------------------------------------
-static const float KP        = 2.8f;
-static const float KP_NL     = 4.55f;
+static const float KP        = 2.8f;   // v9-start: 2.8f
+static const float KP_NL     = 4.55f;  // v9-start: 4.55f
+static const float KP_FOLLOW    = 0.8f;   // low gains — prevent backward-wheel spin on FOLLOW entry
+static const float KP_NL_FOLLOW = 0.5f;
 static const float MAX_SPEED = 1.0f;
 
 static const float BLIND_SPEED    = 1.0f;
@@ -54,7 +57,7 @@ static const int   SERVO_ROT_LOOPS        = 150; // 3.0 s spin for ROT
 static const int   SERVO_GELB_LOOPS       = 50;  // 1.0 s spin for GELB
 static const int   SERVO_1S_LOOPS         = 50;  // 1 s for 180° servo extend/retract phase
 
-static const float SENSOR_THRESHOLD  = 0.5f;
+static const float SENSOR_THRESHOLD  = 0.40f;  // v9-start: 0.5f
 
 // ---------------------------------------------------------------------------
 // States
@@ -123,7 +126,6 @@ static int   m_action_color         = 0;    // colour read at bar/line detection
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Returns the most-voted significant colour since last reset, then clears all votes.
 static bool all_sensors_active()
 {
     for (int i = 0; i < 8; i++) {
@@ -162,7 +164,7 @@ static bool small_line_active()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v8_init(int loops_per_second)
+void roboter_v9_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -223,7 +225,7 @@ void roboter_v8_init(int loops_per_second)
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v8_task(DigitalOut& led)
+void roboter_v9_task(DigitalOut& led)
 {
     // --- Farbsensor ---
     m_current_color  = g_cs->getColor();
@@ -285,9 +287,10 @@ void roboter_v8_task(DigitalOut& led)
         // TURN_SPOT: pivot until center sensors pick up the line
         // ----------------------------------------------------------------
         case STATE_TURN_SPOT:
-            g_M1->setVelocity(VEL_SIGN *  TURN_SPEED);
-            g_M2->setVelocity(VEL_SIGN * -TURN_SPEED);
+            g_M1->setVelocity(VEL_SIGN * -TURN_SPEED);
+            g_M2->setVelocity(VEL_SIGN *  TURN_SPEED);
             if (center_sensors_active()) {
+                g_lf->setRotationalVelocityControllerGains(KP_FOLLOW, KP_NL_FOLLOW);
                 m_guard_ctr = STOP_GUARD;
                 m_state     = STATE_FOLLOW;
             }
@@ -297,8 +300,8 @@ void roboter_v8_task(DigitalOut& led)
         // FOLLOW: line follower until all 8 sensors active
         // ----------------------------------------------------------------
         case STATE_FOLLOW:
-            g_cmd_M1 = VEL_SIGN * g_lf->getRightWheelVelocity();
-            g_cmd_M2 = VEL_SIGN * g_lf->getLeftWheelVelocity();
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity();
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity();
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
@@ -314,8 +317,8 @@ void roboter_v8_task(DigitalOut& led)
         // FOLLOW_1S: keep line-following for 1 s after crossing detected
         // ----------------------------------------------------------------
         case STATE_FOLLOW_1S:
-            g_cmd_M1 = VEL_SIGN * g_lf->getRightWheelVelocity();
-            g_cmd_M2 = VEL_SIGN * g_lf->getLeftWheelVelocity();
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity();
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity();
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
@@ -432,12 +435,13 @@ void roboter_v8_task(DigitalOut& led)
         // ----------------------------------------------------------------
         case STATE_REAL_FOLLOW: {
             g_lf->setMaxWheelVelocity(MAX_SPEED);
+            g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
             float ramp = (m_real_accel_ctr < FOLLOW_ACCEL_LOOPS)
                              ? (static_cast<float>(m_real_accel_ctr + 1) / static_cast<float>(FOLLOW_ACCEL_LOOPS))
                              : 1.0f;
             if (m_real_accel_ctr < FOLLOW_ACCEL_LOOPS) m_real_accel_ctr++;
-            g_cmd_M1 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
-            g_cmd_M2 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
@@ -514,12 +518,13 @@ void roboter_v8_task(DigitalOut& led)
         // ----------------------------------------------------------------
         case STATE_SMALL_FOLLOW: {
             g_lf->setMaxWheelVelocity(MAX_SPEED);
+            g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
             float ramp = (m_small_accel_ctr < ACCEL_LOOPS)
                              ? (static_cast<float>(m_small_accel_ctr + 1) / static_cast<float>(ACCEL_LOOPS))
                              : 1.0f;
             if (m_small_accel_ctr < ACCEL_LOOPS) m_small_accel_ctr++;
-            g_cmd_M1 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
-            g_cmd_M2 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
@@ -591,7 +596,7 @@ void roboter_v8_task(DigitalOut& led)
 
 }
 
-void roboter_v8_reset(DigitalOut& led)
+void roboter_v9_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
@@ -627,7 +632,7 @@ void roboter_v8_reset(DigitalOut& led)
     led                    = 0;
 }
 
-void roboter_v8_print()
+void roboter_v9_print()
 {
     const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
                     (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :
@@ -675,5 +680,4 @@ void roboter_v8_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // TEST_ROBOTER_V8
-
+#endif // PROTOTYPE_02_V9
