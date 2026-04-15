@@ -23,9 +23,16 @@ static const float BAR_DIST = 0.182f;
 // ---------------------------------------------------------------------------
 static const float KP        = 2.8f;   // v9-start: 2.8f
 static const float KP_NL     = 4.55f;  // v9-start: 4.55f
-static const float KP_FOLLOW    = 0.8f;   // low gains — prevent backward-wheel spin on FOLLOW entry
-static const float KP_NL_FOLLOW = 0.5f;
+static const float KP_FOLLOW    = 1.1f;   // low gains — prevent backward-wheel spin on FOLLOW entry
+static const float KP_NL_FOLLOW = 0.7f;
 static const float MAX_SPEED = 1.0f;
+
+// SPEED_SCALE: skaliert zeit-basierte Guards, die WÄHREND Linienfolgen bei MAX_SPEED laufen.
+// Baseline MAX_SPEED war 1.0f — bei Erhöhung werden die Guards automatisch kürzer.
+// ACHTUNG: Nur auf Loops anwenden, die eine Distanz darstellen (Roboter fährt während des Guards).
+// NICHT skalieren: Servo-Zeiten, Standstill-Pausen, Motor-Ramps, Intro-Zeiten mit eigenem Speed.
+// Falls Probleme: Suche nach Kommentar "// [SPEED_SCALE]" — dort wird skaliert.
+static const float SPEED_SCALE = 1.0f / MAX_SPEED;
 
 static const float BLIND_SPEED    = 1.0f;
 static const float STRAIGHT_SPEED = 1.0f;
@@ -34,13 +41,13 @@ static const float BACKWARD_SPEED  = 1.0f;
 static const float APPROACH_SPEED  = 0.5f;  // langsamer → getAvgBit hat Zeit aufzubauen
 
 static const int   STRAIGHT_LOOPS  = 85;   // 1.7 s at 50 Hz
-static const int   FOLLOW_1S_LOOPS = 50;   // 1 s line-follow after crossing detected
+static const int   FOLLOW_1S_LOOPS = static_cast<int>(50 * SPEED_SCALE);   // [SPEED_SCALE] 1 s line-follow after crossing detected @ MAX_SPEED=1.0
 static const int   BRAKE_LOOPS     = 12;   // 0.24 s smooth brake to 0
 static const int   PAUSE_LOOPS     = 20;   // 0.4 s standstill before backwards
-static const int   BACKWARD_LOOPS  = 195;  // 3.9 s backwards drive
+static const int   BACKWARD_LOOPS  = 210;  // 4.2 s backwards drive
 static const int   ACCEL_LOOPS          = 12;  // 0.24 s smooth accel at start of backwards
 static const int   FOLLOW_ACCEL_LOOPS   = 5;   // 0.1 s micro-ramp for motor protection on line follow
-static const int   STOP_GUARD      = 75;   // 1.5 s guard — prevents immediate retrigger
+static const int   STOP_GUARD      = static_cast<int>(75 * SPEED_SCALE);   // [SPEED_SCALE] 1.5 s guard @ MAX_SPEED=1.0 — prevents immediate retrigger
 
 // ---------------------------------------------------------------------------
 // Real program constants
@@ -48,8 +55,8 @@ static const int   STOP_GUARD      = 75;   // 1.5 s guard — prevents immediate
 static const int   TOTAL_CROSSINGS      = 4;    // 4 wide angled bars to process
 static const int   CROSSING_STOP_LOOPS  = 200;  // 4 s total (covers ROT 3s + margin)
 
-static const int   SMALL_FOLLOW_START_GUARD  = 525; // 10.5 s — ignoriert b3/b4/b5 nach 4. Querbalken
-static const int   SMALL_REENTRY_GUARD       = 100; // 2.0 s — skip past colour card after each small stop
+static const int   SMALL_FOLLOW_START_GUARD  = static_cast<int>(525 * SPEED_SCALE); // [SPEED_SCALE] 10.5 s @ MAX_SPEED=1.0 — ignoriert b3/b4/b5 nach 4. Querbalken
+static const int   SMALL_REENTRY_GUARD       = static_cast<int>(100 * SPEED_SCALE); // [SPEED_SCALE] 2.0 s @ MAX_SPEED=1.0 — skip past colour card after each small stop
 static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide bars
 static const int   SMALL_CROSSING_STOP_LOOPS = 200; // 4 s total (covers ROT 3s + margin)
 
