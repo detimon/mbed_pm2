@@ -1,29 +1,35 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-14)
-- **Aktiv in test_config.h:** `PROTOTYPE_02_V10` — läuft, Linienfolgen funktioniert korrekt
-- **roboter_v10** = aktive Version (Kopie von v9 mit gelösten Motor/Sensor-Problemen); **roboter_v9** = Backup
-- **Neues Chassis (heute):** Motoren physisch getauscht — rechter Motor jetzt an M1-Port, linker Motor an M2-Port → `VEL_SIGN=1.0f`, kein Pointer-Swap
-- **Linienfolgen-Fix (heute, mehrstufig):**
-  - Root cause 1: Linienfolgezuweisung invertiert → positives Feedback → stabiles Tracking bei b7 statt Zentrum
-  - Root cause 2: KP=2.8/KP_NL=4.55 verursachten Rückwärtslauf eines Rades bei grossem Eintrittswinkel aus TURN_SPOT → 180°-Spin
-  - Fix 1: TURN_SPOT korrigiert auf CCW (`g_M1=−TURN`, `g_M2=+TURN`)
-  - Fix 2: Bei TURN_SPOT→STATE_FOLLOW Gains auf `KP_FOLLOW=0.8f` / `KP_NL_FOLLOW=0.5f` reduziert (verhindert Rückwärtslauf)
-  - Fix 3: Alle 4 Linienfolgezustände: `g_cmd_M1 = getLeftWheelVelocity()`, `g_cmd_M2 = getRightWheelVelocity()` (gekreuzt, weil Sensorbalken umgekehrt montiert)
-  - Fix 4: STATE_REAL_FOLLOW und STATE_SMALL_FOLLOW stellen volle Gains (2.8/4.55) beim Eintritt wieder her
-- **Motor-Zuordnung v10:** M1 = physisch rechts (PB_13/PA_6/PC_7), M2 = physisch links (PA_9/PB_6/PB_7)
-- **Roboter-Parameter v10:** D_WHEEL=0.0291m, B_WHEEL=0.1493m, BAR_DIST=0.182m, MAX_SPEED=1.0 RPS, SENSOR_THRESHOLD=0.40f
-- **Servo-Logik (v10, identisch v8):**
-  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, 3s (`SERVO_ROT_LOOPS=150`)
-  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, 1s (`SERVO_GELB_LOOPS=50`)
-  - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A (PC_8), nach 1s zurück
-  - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B (PC_6), nach 1s zurück
-  - Default: `g_servo->enable(0.25f)` — 360° Fallback, 1s
-- **Timing:** `CROSSING_STOP_LOOPS=200` (4s), `SMALL_CROSSING_STOP_LOOPS=200` (4s), `SMALL_REENTRY_GUARD=100` (2s)
-- **Farberkennung:** Mechanik wurde geändert — Farbsensor steht nun während `CROSSING_STOP` über der Karte (statt während Fahrt). Code liest `g_cs->getColor()` weiterhin bei `wide_bar_active()` / `small_line_active()` vor `setVelocity(0)` — ob Farberkennung im Stand zuverlässig funktioniert wurde noch NICHT getestet
-- **Hue-Grenzen (lib/ColorSensor/ColorSensor.cpp):** ROT 0°–20°/330°–360°, GELB 20°–80°, GRÜN 80°–215°, BLAU 215°–280°
-- **Kalibrierung:** Original (weisses Papier) aktiv — Matte-Kalibrierung verschiebt Hue-Werte → nicht machen
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-15)
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V10`
+- **roboter_v10** = aktive Version; **roboter_v9** = Backup
+- **Motor-Zuordnung v10:** M1 = physisch rechts, M2 = physisch links; `VEL_SIGN=1.0f`
+- **MAX_SPEED jetzt 1.6 RPS** (zuvor 1.0) → `SPEED_SCALE = 1/1.6 = 0.625`
+- **Timings heute angepasst:**
+  - `CROSSING_STOP_LOOPS` 200 → **100** (2.0 s)
+  - `SMALL_CROSSING_STOP_LOOPS` 200 → **100** (2.0 s)
+  - `SERVO_ROT_LOOPS` 150 → **75** (1.5 s) — muss <= CROSSING_STOP_LOOPS sein
+  - `STRAIGHT_LOOPS` 85 → **70** (1.4 s)
+  - `BACKWARD_LOOPS` 210 → **222** (4.44 s)
+  - `SMALL_FOLLOW_START_GUARD`-Basis 563 → **656** → 410 Loops = 8.2 s bei MAX_SPEED=1.6 (Strecke ≈ 1.2 m)
+- **Neu: Farbbasierte Bremsrampe vor Querlinien & kurzen Linien** in `STATE_REAL_FOLLOW` und `STATE_SMALL_FOLLOW`:
+  - `SLOWDOWN_LOOPS=25` (0.5 s Rampe), `SLOW_FACTOR=0.4f` (40 % der aktuellen Befehlsgeschwindigkeit)
+  - Trigger: `g_cs->getColor()` liefert 3/4/5/7 für `COLOR_STABLE_CNT=5` Loops in Folge (Debouncing gegen Fehlmessungen)
+  - `COLOR_READ_DELAY=50` (1.0 s): nach jedem Linien-Stopp wird `getColor()` für 1 s komplett ignoriert, damit alte Farbkarte unter dem Sensor keinen Retrigger auslöst
+  - `m_action_color` wird direkt beim Slowdown-Start gesetzt; Linien-Trigger (wide_bar/small_line) liest nur noch als Fallback nach
+  - Reset der Slow/Delay/Pending-Counter beim Austritt aus `CROSSING_STOP` / `SMALL_CROSSING_STOP`
+- **Gelöst (2026-04-15):** Früh-Stopp nach 3. kurzer Linie — behoben durch verlängerte `SMALL_FOLLOW_START_GUARD`-Basis (563 → 656, jetzt 8.2 s Sperrzeit nach 4. Querbalken). Die Phantom-Detektion kam also aus dem Bereich unmittelbar nach dem 4. Querbalken, nicht zwischen den echten kurzen Linien.
+- **Offene Probleme:**
+  1. **Roboter findet die Folgelinie nach dem 1. breiten Balken nicht** — konkretes Verhalten noch nicht diagnostiziert (Stoppt er? Fährt er geradeaus weg? In welche Richtung?). Möglicher Kontext: `STOP_GUARD = 75 * SPEED_SCALE` (1.5 s bei MAX_SPEED=1.0 / ~47 Loops = 0.94 s bei MAX_SPEED=1.6) könnte zu kurz sein, sodass der Line-Follower die Linie im Guard-Fenster noch nicht wiederfindet, oder der Roboter nach dem Stopp seitlich versetzt ist.
+  2. **Farbbremsung braucht weiteres Tuning** — Parameter `SLOWDOWN_LOOPS=25` (0.5 s) und `SLOW_FACTOR=0.4f` noch nicht final. `COLOR_STABLE_CNT=5` evtl. nicht ausreichend gegen Phantom-Reads.
+- **Servo-Logik (unverändert):**
+  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, jetzt 1.5 s
+  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, 1 s (`SERVO_GELB_LOOPS=50`)
+  - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A, nach 1 s zurück
+  - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B, nach 1 s zurück
+- **Hue-Grenzen:** ROT 0°–20°/330°–360°, GELB 20°–80°, GRÜN 80°–215°, BLAU 215°–280° (unverändert)
+- **Kalibrierung:** Original (weisses Papier) — Matte-Kalibrierung nicht machen
 
 ## Stack
 - Sprache: C++14
@@ -102,6 +108,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - v10: STATE_FOLLOW Eintritt mit niedrigen Gains (KP_FOLLOW=0.8f, KP_NL_FOLLOW=0.5f), STATE_REAL/SMALL_FOLLOW stellen KP=2.8/KP_NL=4.55 wieder her
 - SensorBar I2C1: SDA = PB_9, SCL = PB_8
 - Eigen-Lib: `EIGEN_NO_DEBUG` + `EIGEN_DONT_VECTORIZE` (Overhead-Reduktion auf MCU)
+- v10 (2026-04-15): Farbbremsrampe — wer bei `col ∈ {3,4,5,7}` bremst, nutzt `SLOWDOWN_LOOPS=25` / `SLOW_FACTOR=0.4f` mit Debouncing `COLOR_STABLE_CNT=5` und Nach-Stopp-Sperre `COLOR_READ_DELAY=50` (1 s)
+- v10 (2026-04-15): MAX_SPEED=1.6, CROSSING_STOP_LOOPS=100, SMALL_CROSSING_STOP_LOOPS=100, SERVO_ROT_LOOPS=75, STRAIGHT_LOOPS=70, BACKWARD_LOOPS=222, SMALL_FOLLOW_START_GUARD-Basis=656
 
 ## Projekt-Kontext
 - **Kurs:** ZHAW 2. Semester, Modul PM2
@@ -109,13 +117,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Kurventuning v10:** KP / KP_NL / MAX_SPEED in `roboter_v10.cpp` so tunen, dass der Roboter Kurven sauber durchfährt ohne die Linie zu verlieren — aktuelle Werte (KP=2.8, KP_NL=4.55, MAX_SPEED=1.0) auf neuem Chassis noch nicht getestet
-2. **Gesamtprogramm zum Laufen bringen:** Nach Kurventuning kompletten Parcours fahren — alle 4 Querbalken + 4 kleine Linien + Servo-Aktionen in richtiger Reihenfolge
-3. **Farbsensor im Stand auf schwarzem Strich prüfen:** Testen ob `g_cs->getColor()` zuverlässig erkennt wenn Roboter steht UND Sensor über dem schwarzen Strich (Linie) ist — nicht über der Farbkarte
+1. **Linienwiedererkennung nach 1. breiten Balken debuggen:** `PROTOTYPE_02_V10` mit `pio device monitor` laufen lassen und beobachten, was nach dem Stopp am 1. Querbalken passiert — erkennt `STATE_REAL_FOLLOW` die Linie nicht mehr (getAvgBit zeigt nichts), oder rollt der Roboter seitlich von der Linie weg während des `STOP_GUARD`? Je nach Befund: `STOP_GUARD` verlängern, den State beim Eintritt mit 0-Velocity-Pause versehen, oder den Roboter vor Weiterfahrt auf die Linie zurückrotieren lassen.
+2. **Farbbremsung tunen:** Beobachten, ob `SLOW_FACTOR=0.4f` zu langsam/zu schnell ist und ob `SLOWDOWN_LOOPS=25` (0.5 s Rampe) zur Abstands-Geometrie Farbkarte→Linie passt. Fehltrigger-Rate von `COLOR_STABLE_CNT=5` protokollieren und ggf. erhöhen.
+3. **Gesamtprogramm durchgehend fahren:** 4 Querbalken + 4 kurze Linien + Servo-Aktionen in richtiger Reihenfolge ohne Fehler.
 
 ## Offene Fragen
-- Funktioniert `g_cs->getColor()` zuverlässig wenn Roboter steht (Mechanik geändert)? Bisher nur während Fahrt getestet
-- Muss der Farblesezeitpunkt in `CROSSING_STOP` verschoben werden (z.B. nach 0.5s Stillstand)?
+- Warum findet der Roboter die Folgelinie nach dem 1. breiten Balken nicht? Seitlicher Versatz beim Stopp, zu kurzer `STOP_GUARD`, oder sieht der Sensorbalken den Rest des Querbalkens und interpretiert ihn falsch?
+- Ist `COLOR_STABLE_CNT=5` (0.1 s) genug Debouncing, oder liefert der Farbsensor länger als 4 Loops Fehlmessungen (3/4/5/7 ohne echte Karte)?
+- Farbkarte liegt laut User physisch VOR der Linie — wie breit ist der Abstand Karte→Linie? Reicht `SLOWDOWN_LOOPS=25` (0.5 s bei SLOW_FACTOR-reduzierter Geschwindigkeit) um vor der Linie zu enden?
 - Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt)
 - Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?
 - Endschalter (A2, PC_5) noch nicht in roboter_v10 integriert — wann soll der 360°-Servo per Endschalter statt Zeitbasis gestoppt werden?

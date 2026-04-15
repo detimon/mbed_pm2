@@ -25,7 +25,7 @@ static const float KP        = 2.8f;   // v9-start: 2.8f
 static const float KP_NL     = 4.55f;  // v9-start: 4.55f
 static const float KP_FOLLOW    = 1.1f;   // low gains — prevent backward-wheel spin on FOLLOW entry
 static const float KP_NL_FOLLOW = 0.7f;
-static const float MAX_SPEED = 1.0f;
+static const float MAX_SPEED = 1.6f;
 
 // SPEED_SCALE: skaliert zeit-basierte Guards, die WÄHREND Linienfolgen bei MAX_SPEED laufen.
 // Baseline MAX_SPEED war 1.0f — bei Erhöhung werden die Guards automatisch kürzer.
@@ -40,27 +40,31 @@ static const float TURN_SPEED     = 0.5f;
 static const float BACKWARD_SPEED  = 1.0f;
 static const float APPROACH_SPEED  = 0.5f;  // langsamer → getAvgBit hat Zeit aufzubauen
 
-static const int   STRAIGHT_LOOPS  = 85;   // 1.7 s at 50 Hz
+static const int   STRAIGHT_LOOPS  = 70;   // 1.4 s at 50 Hz
 static const int   FOLLOW_1S_LOOPS = static_cast<int>(50 * SPEED_SCALE);   // [SPEED_SCALE] 1 s line-follow after crossing detected @ MAX_SPEED=1.0
 static const int   BRAKE_LOOPS     = 12;   // 0.24 s smooth brake to 0
 static const int   PAUSE_LOOPS     = 20;   // 0.4 s standstill before backwards
-static const int   BACKWARD_LOOPS  = 210;  // 4.2 s backwards drive
+static const int   BACKWARD_LOOPS  = 222;  // 4.44 s backwards drive
 static const int   ACCEL_LOOPS          = 12;  // 0.24 s smooth accel at start of backwards
 static const int   FOLLOW_ACCEL_LOOPS   = 5;   // 0.1 s micro-ramp for motor protection on line follow
 static const int   STOP_GUARD      = static_cast<int>(75 * SPEED_SCALE);   // [SPEED_SCALE] 1.5 s guard @ MAX_SPEED=1.0 — prevents immediate retrigger
+static const int   SLOWDOWN_LOOPS  = 25;    // 0.5 s ramp from 100% → SLOW_FACTOR when colour detected
+static const float SLOW_FACTOR     = 0.4f;  // target speed during approach (40% of current command)
+static const int   COLOR_READ_DELAY = 50;   // 1.0 s after restart before colour is polled again (avoids re-triggering on old card)
+static const int   COLOR_STABLE_CNT = 5;    // number of consecutive matching reads required to trigger slowdown
 
 // ---------------------------------------------------------------------------
 // Real program constants
 // ---------------------------------------------------------------------------
 static const int   TOTAL_CROSSINGS      = 4;    // 4 wide angled bars to process
-static const int   CROSSING_STOP_LOOPS  = 200;  // 4 s total (covers ROT 3s + margin)
+static const int   CROSSING_STOP_LOOPS  = 100;  // 2 s total
 
-static const int   SMALL_FOLLOW_START_GUARD  = static_cast<int>(525 * SPEED_SCALE); // [SPEED_SCALE] 10.5 s @ MAX_SPEED=1.0 — ignoriert b3/b4/b5 nach 4. Querbalken
+static const int   SMALL_FOLLOW_START_GUARD  = static_cast<int>(656 * SPEED_SCALE); // [SPEED_SCALE] 13.12 s @ MAX_SPEED=1.0 — ignoriert b3/b4/b5 nach 4. Querbalken
 static const int   SMALL_REENTRY_GUARD       = static_cast<int>(100 * SPEED_SCALE); // [SPEED_SCALE] 2.0 s @ MAX_SPEED=1.0 — skip past colour card after each small stop
 static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide bars
-static const int   SMALL_CROSSING_STOP_LOOPS = 200; // 4 s total (covers ROT 3s + margin)
+static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s total
 
-static const int   SERVO_ROT_LOOPS        = 150; // 3.0 s spin for ROT
+static const int   SERVO_ROT_LOOPS        = 75;  // 1.5 s spin for ROT
 static const int   SERVO_GELB_LOOPS       = 50;  // 1.0 s spin for GELB
 static const int   SERVO_1S_LOOPS         = 50;  // 1 s for 180° servo extend/retract phase
 
@@ -128,6 +132,11 @@ static int   m_led_ctr              = 0;  // 0–99, 2-Sekunden-Periode (50 Hz)
 static int   m_color_log[8]         = {0, 0, 0, 0, 0, 0, 0, 0};
 static int   m_color_log_ctr        = 0;
 static int   m_action_color         = 0;    // colour read at bar/line detection moment
+static bool  m_slowing              = false; // true while slowing down after colour detected
+static int   m_slow_ctr             = 0;     // loops since slowdown started
+static int   m_color_delay_ctr      = 0;     // loops remaining before colour polling is re-enabled
+static int   m_color_stable_ctr     = 0;     // consecutive matching reads of the same action colour
+static int   m_color_pending        = 0;     // the action colour currently being confirmed
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,6 +236,11 @@ void roboter_v10_init(int loops_per_second)
     m_led_ctr              = 0;
     m_color_log_ctr        = 0;
     m_action_color         = 0;
+    m_slowing              = false;
+    m_slow_ctr             = 0;
+    m_color_delay_ctr      = 0;
+    m_color_stable_ctr     = 0;
+    m_color_pending        = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
@@ -447,15 +461,47 @@ void roboter_v10_task(DigitalOut& led)
                              ? (static_cast<float>(m_real_accel_ctr + 1) / static_cast<float>(FOLLOW_ACCEL_LOOPS))
                              : 1.0f;
             if (m_real_accel_ctr < FOLLOW_ACCEL_LOOPS) m_real_accel_ctr++;
-            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
-            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
+
+            if (m_color_delay_ctr > 0) {
+                m_color_delay_ctr--;
+                m_color_stable_ctr = 0;
+                m_color_pending    = 0;
+            } else if (!m_slowing) {
+                int col_now = g_cs->getColor();
+                bool is_action = (col_now == 3 || col_now == 4 || col_now == 5 || col_now == 7);
+                if (is_action && col_now == m_color_pending) {
+                    m_color_stable_ctr++;
+                } else if (is_action) {
+                    m_color_pending    = col_now;
+                    m_color_stable_ctr = 1;
+                } else {
+                    m_color_pending    = 0;
+                    m_color_stable_ctr = 0;
+                }
+                if (m_color_stable_ctr >= COLOR_STABLE_CNT) {
+                    m_slowing      = true;
+                    m_slow_ctr     = 0;
+                    m_action_color = m_color_pending;
+                }
+            }
+            float slow_ramp = 1.0f;
+            if (m_slowing) {
+                float t = (m_slow_ctr < SLOWDOWN_LOOPS)
+                              ? static_cast<float>(m_slow_ctr) / static_cast<float>(SLOWDOWN_LOOPS)
+                              : 1.0f;
+                slow_ramp = 1.0f - t * (1.0f - SLOW_FACTOR);
+                if (m_slow_ctr < SLOWDOWN_LOOPS) m_slow_ctr++;
+            }
+
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp * slow_ramp;
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp * slow_ramp;
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
             if (m_guard_ctr > 0) {
                 m_guard_ctr--;
             } else if (wide_bar_active()) {
-                m_action_color = g_cs->getColor(); // read NOW — sensor is over the card
+                if (m_action_color == 0) m_action_color = g_cs->getColor(); // fallback if slowdown never fired
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_crossings_left--;
@@ -501,6 +547,12 @@ void roboter_v10_task(DigitalOut& led)
 
             m_crossing_ctr--;
             if (m_crossing_ctr <= 0) {
+                m_slowing          = false;
+                m_slow_ctr         = 0;
+                m_action_color     = 0;
+                m_color_delay_ctr  = COLOR_READ_DELAY;
+                m_color_stable_ctr = 0;
+                m_color_pending    = 0;
                 if (m_crossings_left == 0) {
                     // all 4 wide bars done → move on to small lines
                     m_small_crossings_left = TOTAL_SMALL_CROSSINGS;
@@ -530,15 +582,47 @@ void roboter_v10_task(DigitalOut& led)
                              ? (static_cast<float>(m_small_accel_ctr + 1) / static_cast<float>(ACCEL_LOOPS))
                              : 1.0f;
             if (m_small_accel_ctr < ACCEL_LOOPS) m_small_accel_ctr++;
-            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
-            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
+
+            if (m_color_delay_ctr > 0) {
+                m_color_delay_ctr--;
+                m_color_stable_ctr = 0;
+                m_color_pending    = 0;
+            } else if (!m_slowing) {
+                int col_now = g_cs->getColor();
+                bool is_action = (col_now == 3 || col_now == 4 || col_now == 5 || col_now == 7);
+                if (is_action && col_now == m_color_pending) {
+                    m_color_stable_ctr++;
+                } else if (is_action) {
+                    m_color_pending    = col_now;
+                    m_color_stable_ctr = 1;
+                } else {
+                    m_color_pending    = 0;
+                    m_color_stable_ctr = 0;
+                }
+                if (m_color_stable_ctr >= COLOR_STABLE_CNT) {
+                    m_slowing      = true;
+                    m_slow_ctr     = 0;
+                    m_action_color = m_color_pending;
+                }
+            }
+            float slow_ramp = 1.0f;
+            if (m_slowing) {
+                float t = (m_slow_ctr < SLOWDOWN_LOOPS)
+                              ? static_cast<float>(m_slow_ctr) / static_cast<float>(SLOWDOWN_LOOPS)
+                              : 1.0f;
+                slow_ramp = 1.0f - t * (1.0f - SLOW_FACTOR);
+                if (m_slow_ctr < SLOWDOWN_LOOPS) m_slow_ctr++;
+            }
+
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp * slow_ramp;
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp * slow_ramp;
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
             if (m_guard_ctr > 0) {
                 m_guard_ctr--;
             } else if (small_line_active()) {
-                m_action_color       = g_cs->getColor(); // read NOW — sensor is over the card
+                if (m_action_color == 0) m_action_color = g_cs->getColor(); // fallback if slowdown never fired
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_small_crossings_left--;
@@ -582,6 +666,12 @@ void roboter_v10_task(DigitalOut& led)
 
             m_small_crossing_ctr--;
             if (m_small_crossing_ctr <= 0) {
+                m_slowing          = false;
+                m_slow_ctr         = 0;
+                m_action_color     = 0;
+                m_color_delay_ctr  = COLOR_READ_DELAY;
+                m_color_stable_ctr = 0;
+                m_color_pending    = 0;
                 if (m_small_crossings_left == 0) {
                     m_state = STATE_FINAL_HALT;
                 } else {
@@ -632,6 +722,11 @@ void roboter_v10_reset(DigitalOut& led)
     m_led_ctr              = 0;
     m_color_log_ctr        = 0;
     m_action_color         = 0;
+    m_slowing              = false;
+    m_slow_ctr             = 0;
+    m_color_delay_ctr      = 0;
+    m_color_stable_ctr     = 0;
+    m_color_pending        = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_servo->disable();
     g_servo_D1->disable();
