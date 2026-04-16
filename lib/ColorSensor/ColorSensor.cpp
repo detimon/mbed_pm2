@@ -288,8 +288,8 @@ int ColorSensor::getColor()
     //   BLAU: hue ≈ 224°  (from applyCalibration output)
     const float HUE_RED_MAX    = 20.0f;   // 0°–20°   = ROT
     const float HUE_YELLOW_MAX = 80.0f;   // 35°–80°  = GELB
-    const float HUE_GREEN_MAX  = 215.0f;  // 80°–215° = GRÜN (extra Spielraum gegen BLAU)
-    const float HUE_BLUE_MAX   = 280.0f;  // 215°–280°= BLAU
+    const float HUE_GREEN_MAX  = 180.0f;  // 80°–180° = GRÜN (WHITE ≈204°–210° bleibt ausserhalb)
+    const float HUE_BLUE_MAX   = 280.0f;  // 180°–280°= BLAU
     const float HUE_RED_MIN    = 330.0f;  // 330°–360°= ROT (wrap-around)
 
     const int STABLE_COUNT = 1;

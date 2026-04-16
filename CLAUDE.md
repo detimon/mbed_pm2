@@ -1,35 +1,32 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-15)
-- **Aktiv in test_config.h:** `PROTOTYPE_02_V10`
-- **roboter_v10** = aktive Version; **roboter_v9** = Backup
-- **Motor-Zuordnung v10:** M1 = physisch rechts, M2 = physisch links; `VEL_SIGN=1.0f`
-- **MAX_SPEED jetzt 1.6 RPS** (zuvor 1.0) → `SPEED_SCALE = 1/1.6 = 0.625`
-- **Timings heute angepasst:**
-  - `CROSSING_STOP_LOOPS` 200 → **100** (2.0 s)
-  - `SMALL_CROSSING_STOP_LOOPS` 200 → **100** (2.0 s)
-  - `SERVO_ROT_LOOPS` 150 → **75** (1.5 s) — muss <= CROSSING_STOP_LOOPS sein
-  - `STRAIGHT_LOOPS` 85 → **70** (1.4 s)
-  - `BACKWARD_LOOPS` 210 → **222** (4.44 s)
-  - `SMALL_FOLLOW_START_GUARD`-Basis 563 → **656** → 410 Loops = 8.2 s bei MAX_SPEED=1.6 (Strecke ≈ 1.2 m)
-- **Neu: Farbbasierte Bremsrampe vor Querlinien & kurzen Linien** in `STATE_REAL_FOLLOW` und `STATE_SMALL_FOLLOW`:
-  - `SLOWDOWN_LOOPS=25` (0.5 s Rampe), `SLOW_FACTOR=0.4f` (40 % der aktuellen Befehlsgeschwindigkeit)
-  - Trigger: `g_cs->getColor()` liefert 3/4/5/7 für `COLOR_STABLE_CNT=5` Loops in Folge (Debouncing gegen Fehlmessungen)
-  - `COLOR_READ_DELAY=50` (1.0 s): nach jedem Linien-Stopp wird `getColor()` für 1 s komplett ignoriert, damit alte Farbkarte unter dem Sensor keinen Retrigger auslöst
-  - `m_action_color` wird direkt beim Slowdown-Start gesetzt; Linien-Trigger (wide_bar/small_line) liest nur noch als Fallback nach
-  - Reset der Slow/Delay/Pending-Counter beim Austritt aus `CROSSING_STOP` / `SMALL_CROSSING_STOP`
-- **Gelöst (2026-04-15):** Früh-Stopp nach 3. kurzer Linie — behoben durch verlängerte `SMALL_FOLLOW_START_GUARD`-Basis (563 → 656, jetzt 8.2 s Sperrzeit nach 4. Querbalken). Die Phantom-Detektion kam also aus dem Bereich unmittelbar nach dem 4. Querbalken, nicht zwischen den echten kurzen Linien.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-16)
+- **Aktiv in test_config.h:** `TEST_COLOR_NEOPIXEL` (zum Validieren der Farberkennung während der Fahrt)
+- **roboter_v10** = aktive Version; **roboter_v9** = Backup — **unverändert diese Session**
+- **Neu: WS2812B NeoPixel-Treiber + Validierungs-Testmodul**
+  - `lib/NeoPixel/` — Bit-Bang WS2812B-Treiber via DWT-Cycle-Counter (GRB-Byte-Order, T1H=122/T0H=58/BIT=220 Zyklen @ 180 MHz, `core_util_critical_section` um Timing). API: `NeoPixel(PinName)`, `setRGB()`, `show()`, `clear()`. Pin: **PB_2** (D0), 5 V-Versorgung.
+  - `src/test_files/test_neopixel.{h,cpp}` — Zyklus-Test: ROT/GELB/GRÜN/BLAU/OFF je 1 s. Beweist die Ansteuerung.
+  - `src/test_files/test_color_neopixel.{h,cpp}` — **Live-Spiegelung**: `ColorSensor` + `NeoPixel` zusammen. `getColor()` → gedimmte Zielfarbe (60/255 max) nur für die 4 Aktions-Farben 3/4/5/7, sonst AUS. Print-Zeile: `Color=NAME  Hue=XX.X°  RGBn=(...)`. Ziel: während der Fahrt manuell prüfen, ob der Sensor die richtige Farbe liest.
+  - Aktivierungen in `src/test_config.h` (beide auskommentiert einsehbar), `#elif`-Zweige in `src/main.cpp` nach `TEST_ENDSCHALTER`.
+- **Neu: Hue-Messungen (2026-04-16, weisses Papier, LED an):**
+  - WHITE: 204°–210°  *(← problematisch, lag vorher im GRÜN-Korridor)*
+  - BLAU: 226°–232°
+  - GRÜN: 133°–143°
+  - ROT: 359°–1.5° (wrap-around)
+  - GELB: 43.5°–44.5°
+- **Geändert: `HUE_GREEN_MAX` 215° → 180°** in [lib/ColorSensor/ColorSensor.cpp:291](lib/ColorSensor/ColorSensor.cpp#L291). BLAU beginnt damit bei 180°. Grund: WHITE-Hue (204°–210°) lag im 215°-Fenster als GRÜN und hat vermutlich die Phantom-Bremstrigger der letzten Session ausgelöst. Mit 180° liegt WHITE jetzt im BLAU-Korridor — Risiko nur noch relevant wenn der Sättigungs-Filter (`SATP_GRAY_MAX=0.01`, `C0_WHITE_MIN=650`) WHITE nicht abfängt.
+- **Achtung:** bisherige CLAUDE.md-Regel "GRÜN-Max NIEMALS zurücksetzen (175° → GRÜN→BLAU-Fehler)" wurde bewusst überschrieben. Mit aktueller GRÜN-Messung (max 143°) bleibt 37° Puffer. Falls GRÜN-Karte erneut als BLAU gelesen wird → wieder hochsetzen (z.B. 195°).
+- **Unverändert:**
+  - MAX_SPEED=1.6, Motor-Zuordnung M1=rechts/M2=links, VEL_SIGN=1.0f, SPEED_SCALE=0.625
+  - Timings: CROSSING_STOP_LOOPS=100, SMALL_CROSSING_STOP_LOOPS=100, SERVO_ROT_LOOPS=75, STRAIGHT_LOOPS=70, BACKWARD_LOOPS=222, SMALL_FOLLOW_START_GUARD-Basis=656
+  - Farbbremsrampe: `SLOWDOWN_LOOPS=25`, `SLOW_FACTOR=0.4f`, `COLOR_READ_DELAY=50`, `COLOR_STABLE_CNT=5`
+  - Servo-Logik (ROT=360°-schnell, GELB=360°-langsam, GRÜN=180°-A, BLAU=180°-B)
+  - Gelöst 2026-04-15: 3.-Linie-Früh-Stopp durch SMALL_FOLLOW_START_GUARD-Basis 656
 - **Offene Probleme:**
-  1. **Roboter findet die Folgelinie nach dem 1. breiten Balken nicht** — konkretes Verhalten noch nicht diagnostiziert (Stoppt er? Fährt er geradeaus weg? In welche Richtung?). Möglicher Kontext: `STOP_GUARD = 75 * SPEED_SCALE` (1.5 s bei MAX_SPEED=1.0 / ~47 Loops = 0.94 s bei MAX_SPEED=1.6) könnte zu kurz sein, sodass der Line-Follower die Linie im Guard-Fenster noch nicht wiederfindet, oder der Roboter nach dem Stopp seitlich versetzt ist.
-  2. **Farbbremsung braucht weiteres Tuning** — Parameter `SLOWDOWN_LOOPS=25` (0.5 s) und `SLOW_FACTOR=0.4f` noch nicht final. `COLOR_STABLE_CNT=5` evtl. nicht ausreichend gegen Phantom-Reads.
-- **Servo-Logik (unverändert):**
-  - ROT (3): `g_servo->enable(0.10f)` — 360° schnell, jetzt 1.5 s
-  - GELB (4): `g_servo->enable(0.35f)` — 360° langsam, 1 s (`SERVO_GELB_LOOPS=50`)
-  - GRÜN (5): `g_servo_D1->enable(1.0f)` — 180° Servo A, nach 1 s zurück
-  - BLAU (7): `g_servo_D2->enable(1.0f)` — 180° Servo B, nach 1 s zurück
-- **Hue-Grenzen:** ROT 0°–20°/330°–360°, GELB 20°–80°, GRÜN 80°–215°, BLAU 215°–280° (unverändert)
-- **Kalibrierung:** Original (weisses Papier) — Matte-Kalibrierung nicht machen
+  1. **Roboter findet Folgelinie nach 1. breiten Balken nicht** — noch nicht diagnostiziert (seitlicher Versatz, zu kurzer STOP_GUARD, oder Sensor sieht Rest des Querbalkens?).
+  2. **WHITE→BLAU-Risiko** nach der GRÜN-Grenzen-Änderung — muss mit TEST_COLOR_NEOPIXEL überfahren werden, um zu prüfen ob WHITE jetzt Phantom-BLAU triggert.
+  3. **Farbbremsung** braucht noch Feintuning (SLOW_FACTOR, SLOWDOWN_LOOPS), vorher aber Farberkennung stabilisieren.
 
 ## Stack
 - Sprache: C++14
@@ -98,7 +95,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Endschalter 360°-Servo: A2 (PC_5), `DigitalIn` PullUp, getestet — noch nicht in roboter_v10 integriert
 - roboter_v10: SMALL_REENTRY_GUARD=100 (2s) verhindert Stopp auf Farbkarte statt echtem Querbalken
 - `src/test_files/` Unterordner erstellt — alle `test_*.cpp/.h` darin; Roboter-Files in `src/` als `prototype01_vX.cpp/.h` (v1–v8) und `prototype02_vX.cpp/.h` (v9–v10)
-- Hue-Grenze GRÜN: 215° (nicht 175°) — NIEMALS zurücksetzen, GRÜN→BLAU-Fehler kehrt sonst zurück
+- Hue-Grenze GRÜN (2026-04-16): **180°** (vorher 215°, ursprünglich 175°) — Senkung nötig, weil WHITE-Hue bei 204°–210° sonst als GRÜN klassifiziert wurde. 37° Puffer über gemessenem GRÜN-Max (143°). Falls GRÜN wieder als BLAU gelesen wird → hochsetzen (195°).
 - Kalibrierung mit echter Matte NICHT machen ohne gleichzeitige Hue-Grenzen-Anpassung — verschiebt alle Werte
 - Servo-Kalibrierung abgeschlossen (2026-03-26): A=(0.0303–0.1204), B=(0.0314–0.1232), 360°=(0.0303–0.1223, Stop=0.0763)
 - `TEST_LINE_FOLLOWER_FAST` ist stabil und funktioniert (Commit 183603b) — nicht anfassen
@@ -110,6 +107,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Eigen-Lib: `EIGEN_NO_DEBUG` + `EIGEN_DONT_VECTORIZE` (Overhead-Reduktion auf MCU)
 - v10 (2026-04-15): Farbbremsrampe — wer bei `col ∈ {3,4,5,7}` bremst, nutzt `SLOWDOWN_LOOPS=25` / `SLOW_FACTOR=0.4f` mit Debouncing `COLOR_STABLE_CNT=5` und Nach-Stopp-Sperre `COLOR_READ_DELAY=50` (1 s)
 - v10 (2026-04-15): MAX_SPEED=1.6, CROSSING_STOP_LOOPS=100, SMALL_CROSSING_STOP_LOOPS=100, SERVO_ROT_LOOPS=75, STRAIGHT_LOOPS=70, BACKWARD_LOOPS=222, SMALL_FOLLOW_START_GUARD-Basis=656
+- NeoPixel (2026-04-16): WS2812B Adafruit Flora v2 an PB_2 (D0), 5V, Bit-Bang-Treiber in `lib/NeoPixel/` (DWT-Cycle-Counter + critical_section). GRB-Byte-Order. Test-Module: `TEST_NEOPIXEL` (Zyklus-Selbsttest) und `TEST_COLOR_NEOPIXEL` (Live-Validierung Farbsensor).
+- Hue-Referenz (2026-04-16, weisses Papier, LED an): WHITE 204°–210°, BLAU 226°–232°, GRÜN 133°–143°, ROT 359°–1.5°, GELB 43.5°–44.5° — Quelle bei künftigen Hue-Grenzen-Entscheidungen.
 
 ## Projekt-Kontext
 - **Kurs:** ZHAW 2. Semester, Modul PM2
@@ -117,13 +116,15 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Linienwiedererkennung nach 1. breiten Balken debuggen:** `PROTOTYPE_02_V10` mit `pio device monitor` laufen lassen und beobachten, was nach dem Stopp am 1. Querbalken passiert — erkennt `STATE_REAL_FOLLOW` die Linie nicht mehr (getAvgBit zeigt nichts), oder rollt der Roboter seitlich von der Linie weg während des `STOP_GUARD`? Je nach Befund: `STOP_GUARD` verlängern, den State beim Eintritt mit 0-Velocity-Pause versehen, oder den Roboter vor Weiterfahrt auf die Linie zurückrotieren lassen.
-2. **Farbbremsung tunen:** Beobachten, ob `SLOW_FACTOR=0.4f` zu langsam/zu schnell ist und ob `SLOWDOWN_LOOPS=25` (0.5 s Rampe) zur Abstands-Geometrie Farbkarte→Linie passt. Fehltrigger-Rate von `COLOR_STABLE_CNT=5` protokollieren und ggf. erhöhen.
-3. **Gesamtprogramm durchgehend fahren:** 4 Querbalken + 4 kurze Linien + Servo-Aktionen in richtiger Reihenfolge ohne Fehler.
+1. **`TEST_COLOR_NEOPIXEL` flashen und mit allen 5 Karten + weissem Untergrund prüfen** (`pio run --target upload` → `pio device monitor`, User-Button zum Aktivieren). Dabei verifizieren: (a) bei ROT/GELB/GRÜN/BLAU-Karte leuchtet die NeoPixel in der richtigen Farbe und der Monitor zeigt die passende Hue im erwarteten Bereich; (b) über weissem Untergrund bleibt die NeoPixel **aus** (kein Phantom-BLAU nach der Hue-Grenzen-Änderung 215°→180°); (c) GRÜN-Karte wird nicht mehr mit BLAU verwechselt (altes Risiko der 175°-Grenze). Bei Phantom-BLAU über WHITE → `SATP_GRAY_MAX` in [ColorSensor.cpp:277](lib/ColorSensor/ColorSensor.cpp#L277) leicht erhöhen (z.B. auf 0.02f).
+2. **Danach zurück auf `PROTOTYPE_02_V10`**, Roboter fahren lassen und gezielt die Linienwiedererkennung nach dem 1. breiten Balken debuggen.
+3. **Farbbremsung final tunen** (SLOW_FACTOR, SLOWDOWN_LOOPS) — erst wenn Farberkennung bestätigt sauber ist.
+4. **Gesamtprogramm durchgehend fahren:** 4 Querbalken + 4 kurze Linien + Servo-Aktionen in richtiger Reihenfolge ohne Fehler.
 
 ## Offene Fragen
+- **Nach GRÜN-Grenze 215°→180°:** wird WHITE (Hue 204°–210°) jetzt als BLAU (7) klassifiziert, falls der Sättigungs-Filter versagt? → mit `TEST_COLOR_NEOPIXEL` über weissem Untergrund beobachten.
 - Warum findet der Roboter die Folgelinie nach dem 1. breiten Balken nicht? Seitlicher Versatz beim Stopp, zu kurzer `STOP_GUARD`, oder sieht der Sensorbalken den Rest des Querbalkens und interpretiert ihn falsch?
-- Ist `COLOR_STABLE_CNT=5` (0.1 s) genug Debouncing, oder liefert der Farbsensor länger als 4 Loops Fehlmessungen (3/4/5/7 ohne echte Karte)?
+- Ist `COLOR_STABLE_CNT=5` (0.1 s) genug Debouncing, oder liefert der Farbsensor länger als 4 Loops Fehlmessungen? (Die aktuelle Phantom-Bremsung kann jetzt auch durch die WHITE-Fehlklassifikation erklärt sein — nach Hue-Grenze-Fix erneut bewerten.)
 - Farbkarte liegt laut User physisch VOR der Linie — wie breit ist der Abstand Karte→Linie? Reicht `SLOWDOWN_LOOPS=25` (0.5 s bei SLOW_FACTOR-reduzierter Geschwindigkeit) um vor der Linie zu enden?
 - Wie sieht die Arm-Bewegung mit den 180°-Servos bei den Crossings aus? (Winkel, Sequenz, Zeiten noch unbekannt)
 - Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es noch eine finale Aktion?

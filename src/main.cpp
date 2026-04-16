@@ -175,6 +175,20 @@
     #define TEST_RESET(led)   endschalter_reset(led)
     #define TEST_PRINT()      endschalter_print()
 
+#elif defined(TEST_NEOPIXEL)
+    #include "test_files/test_neopixel.h"
+    #define TEST_INIT(lps)    neopixel_init(lps)
+    #define TEST_TASK(led)    neopixel_task(led)
+    #define TEST_RESET(led)   neopixel_reset(led)
+    #define TEST_PRINT()      neopixel_print()
+
+#elif defined(TEST_COLOR_NEOPIXEL)
+    #include "test_files/test_color_neopixel.h"
+    #define TEST_INIT(lps)    color_neopixel_init(lps)
+    #define TEST_TASK(led)    color_neopixel_task(led)
+    #define TEST_RESET(led)   color_neopixel_reset(led)
+    #define TEST_PRINT()      color_neopixel_print()
+
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
 #endif
