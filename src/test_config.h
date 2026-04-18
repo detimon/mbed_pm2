@@ -14,6 +14,7 @@
 // #define PROTOTYPE_01_V8
 // #define PROTOTYPE_02_V9
 // #define PROTOTYPE_02_V10
+#define PROTOTYPE_02_V11
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
 // #define TEST_COLOR_SENSOR
@@ -28,7 +29,7 @@
 // #define TEST_DREHSERVO_90
 // #define TEST_ENDSCHALTER
 //#define TEST_NEOPIXEL
-#define TEST_COLOR_NEOPIXEL
+//#define TEST_COLOR_NEOPIXEL
 
 // --- Liniensensor Tests ---
 // #define TEST_LINE_FOLLOWER

@@ -137,7 +137,17 @@ void LineFollower::followLine()
 
         is_any_led_active = (n_active > 0) && !wide_detection;
         if (is_any_led_active) {
-            m_angle = m_SensorBar.getAngleRad();
+            float new_angle = m_SensorBar.getAngleRad();
+#define ANGLE_CLAMP_ENABLED  // comment out to disable angle clamping
+#ifdef ANGLE_CLAMP_ENABLED
+            static const float MAX_ANGLE_STEP = 0.15f; // max radians per loop (~8.6°)
+            float diff = new_angle - m_angle;
+            if (diff >  MAX_ANGLE_STEP) diff =  MAX_ANGLE_STEP;
+            if (diff < -MAX_ANGLE_STEP) diff = -MAX_ANGLE_STEP;
+            m_angle += diff;
+#else
+            m_angle = new_angle;
+#endif
         }
         m_mean_three_avg_bits_left = m_SensorBar.getMeanThreeAvgBitsLeft();
         m_mean_three_avg_bits_right = m_SensorBar.getMeanThreeAvgBitsRight();

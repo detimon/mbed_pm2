@@ -1,9 +1,9 @@
-// CargoSweep — PROTOTYPE_02_V10
+// CargoSweep — PROTOTYPE_02_V11
 #include "test_config.h"
 
-#ifdef PROTOTYPE_02_V10
+#ifdef PROTOTYPE_02_V11
 
-#include "prototype02_v10.h"
+#include "prototype02_v11.h"
 #include "Servo.h"
 #include "NeoPixel.h"
 
@@ -51,7 +51,7 @@ static const int   FOLLOW_ACCEL_LOOPS   = 5;   // 0.1 s micro-ramp for motor pro
 static const int   RESTART_ACCEL_LOOPS  = 50;  // 1.0 s straight drive with ramp, then line follower
 static const int   STOP_GUARD      = static_cast<int>(75 * SPEED_SCALE);   // [SPEED_SCALE] 1.5 s guard @ MAX_SPEED=1.0 — prevents immediate retrigger
 static const int   SLOWDOWN_LOOPS  = 13;    // 0.26 s ramp from 100% → SLOW_FACTOR when colour detected
-static const float SLOW_FACTOR     = 0.4f;  // target speed during approach (40% of current command)
+static const float SLOW_FACTOR     = 0.2f;  // target speed during approach (20% of current command)
 static const int   COLOR_READ_DELAY = 50;   // 1.0 s after restart before colour is polled again (avoids re-triggering on old card)
 static const int   COLOR_STABLE_CNT = 3;    // consecutive matching reads during driving to trigger slowdown (60 ms)
 static const int   COLOR_READ_PHASE = 25;   // 0.5 s colour reading at standstill before servo fires
@@ -110,8 +110,10 @@ static Servo*        g_servo    = nullptr;  // 360° servo — D3 (PB_12)
 static Servo*        g_servo_D1 = nullptr;  // 180° servo A — D1 (PC_8)
 static Servo*        g_servo_D2 = nullptr;  // 180° servo B — D2 (PC_6)
 static NeoPixel*     g_np       = nullptr;  // WS2812B colour-debug LED — PB_2 (D0)
+static DigitalIn*    g_endstop  = nullptr;  // Endschalter 360°-Servo — A2 (PC_5)
 
 static State m_state           = STATE_BLIND;
+static bool  m_servo360_aligning = false;   // true while 360° servo spins to endstop
 static int   m_straight_ctr    = 0;
 static int   m_follow_ctr      = 0;
 static int   m_brake_ctr       = 0;
@@ -185,7 +187,7 @@ static bool small_line_active()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v10_init(int loops_per_second)
+void roboter_v11_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -199,6 +201,7 @@ void roboter_v10_init(int loops_per_second)
     static Servo servo_D1(PC_8);
     static Servo servo_D2(PC_6);
     static NeoPixel neopixel(PB_2);
+    static DigitalIn endstop(PC_5, PullUp);
 
     g_M1       = &motor_M1;
     g_M2       = &motor_M2;
@@ -209,6 +212,7 @@ void roboter_v10_init(int loops_per_second)
     g_servo_D1 = &servo_D1;
     g_servo_D2 = &servo_D2;
     g_np       = &neopixel;
+    g_endstop  = &endstop;
     g_np->clear();
     g_cs->setCalibration();
     g_cs->switchLed(ON);
@@ -254,7 +258,7 @@ void roboter_v10_init(int loops_per_second)
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v10_task(DigitalOut& led)
+void roboter_v11_task(DigitalOut& led)
 {
     // --- Farbsensor ---
     m_current_color  = g_cs->getColor();
@@ -299,6 +303,11 @@ void roboter_v10_task(DigitalOut& led)
 
     *g_en = 1;
 
+    if (m_servo360_aligning && g_endstop->read() == 0) {
+        g_servo->disable();
+        m_servo360_aligning = false;
+    }
+
     switch (m_state) {
 
         // ----------------------------------------------------------------
@@ -308,6 +317,10 @@ void roboter_v10_task(DigitalOut& led)
             g_M1->setVelocity(VEL_SIGN * BLIND_SPEED);
             g_M2->setVelocity(VEL_SIGN * BLIND_SPEED);
             if (all_sensors_active()) {
+                g_servo_D1->enable(0.0f);   // D1 komplett eingefahren
+                g_servo_D2->enable(1.0f);   // D2 komplett oben
+                g_servo->enable(0.80f);     // 360° langsam drehen bis Endschalter
+                m_servo360_aligning = true;
                 m_straight_ctr = STRAIGHT_LOOPS;
                 m_state        = STATE_STRAIGHT;
             }
@@ -571,7 +584,7 @@ void roboter_v10_task(DigitalOut& led)
                     case 3:  g_servo->enable(0.90f);    break; // ROT  — D3 schnell
                     case 4:  g_servo->enable(0.80f);    break; // GELB — D3 langsam
                     case 5:  g_servo_D1->enable(1.0f);  break; // GRÜN — D1 ausfahren
-                    case 7:  g_servo_D2->enable(0.5f);  break; // BLAU — D2 50% ausfahren (von 1.0 Richtung 0.0)
+                    case 7:  g_servo_D1->enable(0.2f);  break; // BLAU — D1 20% ausfahren (D1: 0.0=ein, 1.0=aus)
                     default: break;                             // kein Signal → kein Servo
                 }
             }
@@ -580,12 +593,24 @@ void roboter_v10_task(DigitalOut& led)
             // Retract 180° servo after SERVO_1S_LOOPS (ab Servo-Start)
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE - SERVO_1S_LOOPS) {
                 if (m_action_color == 5) g_servo_D1->setPulseWidth(0.0f);
-                if (m_action_color == 7) g_servo_D2->setPulseWidth(1.0f);
+            }
+            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° drehen
+            if (m_action_color == 7) {
+                if (m_crossing_ctr == 60) g_servo_D2->enable(0.8f);          // D2 senken 20% (D2: 1.0=oben, 0.0=unten)
+                if (m_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);   // D2 komplett hoch
+                if (m_crossing_ctr == 35) {
+                    g_servo_D2->disable();
+                    g_servo_D1->setPulseWidth(0.0f);                          // D1 komplett einfahren
+                }
+                if (m_crossing_ctr == 25) {
+                    g_servo_D1->disable();
+                    g_servo->enable(0.80f);                                   // 360° langsam
+                }
+                if (m_crossing_ctr == 15) g_servo->disable();                // 360° stopp
             }
             if (m_crossing_ctr == 1) {
                 if (m_action_color == 3) g_servo->disable();
                 if (m_action_color == 5) g_servo_D1->disable();
-                if (m_action_color == 7) g_servo_D2->disable();
             }
 
             m_crossing_ctr--;
@@ -708,7 +733,7 @@ void roboter_v10_task(DigitalOut& led)
                     case 3:  g_servo->enable(0.90f);    break; // ROT  — D3 schnell
                     case 4:  g_servo->enable(0.80f);    break; // GELB — D3 langsam
                     case 5:  g_servo_D1->enable(1.0f);  break; // GRÜN — D1 ausfahren
-                    case 7:  g_servo_D2->enable(0.5f);  break; // BLAU — D2 50% ausfahren (von 1.0 Richtung 0.0)
+                    case 7:  g_servo_D1->enable(0.2f);  break; // BLAU — D1 20% ausfahren (D1: 0.0=ein, 1.0=aus)
                     default: break;                             // kein Signal → kein Servo
                 }
             }
@@ -717,12 +742,24 @@ void roboter_v10_task(DigitalOut& led)
             // Retract 180° servo after SERVO_1S_LOOPS (ab Servo-Start)
             if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE - SERVO_1S_LOOPS) {
                 if (m_action_color == 5) g_servo_D1->setPulseWidth(0.0f);
-                if (m_action_color == 7) g_servo_D2->setPulseWidth(1.0f);
+            }
+            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° drehen
+            if (m_action_color == 7) {
+                if (m_small_crossing_ctr == 60) g_servo_D2->enable(0.8f);          // D2 senken 20% (D2: 1.0=oben, 0.0=unten)
+                if (m_small_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);   // D2 komplett hoch
+                if (m_small_crossing_ctr == 35) {
+                    g_servo_D2->disable();
+                    g_servo_D1->setPulseWidth(0.0f);                                // D1 komplett einfahren
+                }
+                if (m_small_crossing_ctr == 25) {
+                    g_servo_D1->disable();
+                    g_servo->enable(0.80f);                                         // 360° langsam
+                }
+                if (m_small_crossing_ctr == 15) g_servo->disable();                // 360° stopp
             }
             if (m_small_crossing_ctr == 1) {
                 if (m_action_color == 3) g_servo->disable();
                 if (m_action_color == 5) g_servo_D1->disable();
-                if (m_action_color == 7) g_servo_D2->disable();
             }
 
             m_small_crossing_ctr--;
@@ -754,16 +791,17 @@ void roboter_v10_task(DigitalOut& led)
 
 }
 
-void roboter_v10_reset(DigitalOut& led)
+void roboter_v11_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
-    g_cmd_M1         = 0.0f;
-    g_cmd_M2         = 0.0f;
-    m_state          = STATE_BLIND;
-    m_straight_ctr   = 0;
-    m_follow_ctr     = 0;
+    g_cmd_M1             = 0.0f;
+    g_cmd_M2             = 0.0f;
+    m_state              = STATE_BLIND;
+    m_servo360_aligning  = false;
+    m_straight_ctr       = 0;
+    m_follow_ctr         = 0;
     m_brake_ctr      = 0;
     m_pause_ctr      = 0;
     m_backward_ctr   = 0;
@@ -796,7 +834,7 @@ void roboter_v10_reset(DigitalOut& led)
     led                    = 0;
 }
 
-void roboter_v10_print()
+void roboter_v11_print()
 {
     const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
                     (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :
@@ -844,4 +882,4 @@ void roboter_v10_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // PROTOTYPE_02_V10
+#endif // PROTOTYPE_02_V11

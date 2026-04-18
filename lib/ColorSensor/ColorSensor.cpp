@@ -274,7 +274,7 @@ int ColorSensor::getColor()
     // calibrated space already drops below 0.08 for green/blue cards.
     // Setting SATP_GRAY_MAX=0.01 keeps pure white floor (satp≈0) as WHITE
     // while letting diluted colours through to the hue classifier.
-    const float SATP_GRAY_MAX   = 0.01f;  // below => neutral (for WHITE check)
+    const float SATP_GRAY_MAX   = 0.03f;  // below => neutral (for WHITE check)
     // Similarly, norm(max-min) drops quickly with dilution.  0.03 allows
     // detection up to ~83% white floor contamination.
     const float NORM_DELTA_MIN  = 0.03f;  // norm(max-min) below => too diluted to classify
@@ -286,11 +286,12 @@ int ColorSensor::getColor()
     //   GELB: hue ≈  36°  (g0/r0=0.622 → hue=60°×0.622≈37°)
     //   GRÜN: hue ≈ 124°  (from applyCalibration output)
     //   BLAU: hue ≈ 224°  (from applyCalibration output)
-    const float HUE_RED_MAX    = 20.0f;   // 0°–20°   = ROT
-    const float HUE_YELLOW_MAX = 80.0f;   // 35°–80°  = GELB
-    const float HUE_GREEN_MAX  = 180.0f;  // 80°–180° = GRÜN (WHITE ≈204°–210° bleibt ausserhalb)
-    const float HUE_BLUE_MAX   = 280.0f;  // 180°–280°= BLAU
-    const float HUE_RED_MIN    = 330.0f;  // 330°–360°= ROT (wrap-around)
+    const float HUE_RED_MAX    = 20.0f;   // 0°–20°    = ROT
+    const float HUE_YELLOW_MAX = 80.0f;   // 20°–80°   = GELB
+    const float HUE_GREEN_MAX  = 180.0f;  // 80°–180°  = GRÜN
+    const float HUE_BLUE_MIN   = 218.0f;  // 180°–218° = UNKNOWN (fängt WHITE ≈204°–210° ab)
+    const float HUE_BLUE_MAX   = 280.0f;  // 218°–280° = BLAU
+    const float HUE_RED_MIN    = 330.0f;  // 330°–360° = ROT (wrap-around)
 
     const int STABLE_COUNT = 1;
 
@@ -333,6 +334,7 @@ int ColorSensor::getColor()
             if      (hue < HUE_RED_MAX || hue > HUE_RED_MIN) candidate = 3; // ROT
             else if (hue < HUE_YELLOW_MAX)                    candidate = 4; // GELB
             else if (hue < HUE_GREEN_MAX)                     candidate = 5; // GRÜN
+            else if (hue < HUE_BLUE_MIN)                      candidate = 0; // UNKNOWN (WHITE-Zone)
             else if (hue < HUE_BLUE_MAX)                      candidate = 7; // BLAU
             else                                               candidate = 0; // UNKNOWN
 
