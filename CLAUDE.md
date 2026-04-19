@@ -2,25 +2,17 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-19)
-- **Aktiv in test_config.h:** `PROTOTYPE_02_V11`
-- **roboter_v11** = aktive Version; **roboter_v10** = Backup
-- **Endschalter-Bug gelöst (2026-04-19):** Pin war falsch — SIG ist physisch an **PC_2** (A0 auf PES-Board), nicht PC_5. Korrigiert in `src/prototype02_v11.cpp:204` und `src/test_files/test_endschalter.cpp:18`. Endschalter liest jetzt korrekt: `raw=1` offen, `raw=0` gedrückt. Test mit `TEST_ENDSCHALTER` bestätigt.
-- **360°-Servo Stopp-Mechanik komplett überarbeitet (2026-04-19):**
-  - **Debounce-Logik:** `m_endstop_released` Flag — Endschalter muss erst einmal losgelassen werden (`read()==1`) bevor `==0` als Stopp-Signal zählt. Verhindert sofortiges Stoppen wenn Servo auf Ausgangs-Endschalter steht.
-  - **Aktive Reverse-Bremsung:** Bei Endschalter-Trigger → 2 Loops (40 ms) Gegenpuls `SERVO360_BRAKE_PULSE=0.23f` (gespiegelt um 0.5) → danach Stop-Mitte `0.5f`. Kein `disable()` — Servo bleibt unter PWM-Kontrolle, coastet nicht.
-  - **Einheitliche Geschwindigkeit:** Konstante `SERVO360_ALIGN_SPEED=0.77f` für ROT, GELB, BLAU-Phase und Initial-Ausrichtung. Zwischen Totzone (~0.75) und Überschiess-Bereich (0.80).
-  - **ROT + GELB stoppen jetzt auch am Endschalter** (statt zeitbasiert `SERVO_ROT_LOOPS`/`SERVO_GELB_LOOPS`).
-- **Farbsensor komplett neu kalibriert (2026-04-19):** Sensor-Halterung wurde physisch umdesignt → alle Hue-Werte verschoben:
-  - **BLAU 348°–7°** (wrap um 0°, war 218°–280°) — Priorität VOR WHITE-Check, damit low-sat Blau nicht als UNKNOWN klassifiziert wird
-  - **ROT 7°–20°** (war 0°–20° + 330°–360°)
-  - **WHITE/UNKNOWN 20°–32°** (war 180°–218°)
-  - **GELB 32°–52°** (war 20°–80°, erweitert um ±2° um Messbereich 37°–40°)
-  - **GRÜN 52°–80°** (war 80°–180°)
-  - **WHITE → UNKNOWN (candidate=0):** satp-Check liefert jetzt 0 statt 2, weisse Karte triggert keine Aktion
-- **BLAU-Sequenz:** D1 fährt jetzt **85% aus** (0.85f, war 0.2/0.6) → D2 senken/heben → D1 ein → 360° dreht bis Endschalter (nicht mehr 10 Loops fix).
-- **Offene Probleme:**
-  1. **Überschiessen noch zu prüfen** — aktive Reverse-Bremsung mit 2 Loops eingebaut, aber noch nicht am echten Roboter validiert. Falls 90° statt 180° Überschiessen: `SERVO360_BRAKE_LOOPS` erhöhen.
-  2. **Angle Clamp Auswirkung** — noch nicht verifiziert ob 0.15 rad richtig ist.
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V13`
+- **roboter_v13** = aktive Version; **roboter_v12** = Backup
+- **BLAU-Sequenz funktioniert (2026-04-19):** D1 ausfahren (0.95f) → D2 senken (0.8f) → D2 hoch (1.0f) → D1 ein (0.0f) → 360° dreht bis Endschalter. Päcklein-Ablage bestätigt.
+- **GRÜN-Sequenz funktioniert (2026-04-19):** Gleich wie BLAU, aber D2 geht tiefer (`SERVO_D2_GRUEN_DOWN=0.4f`). Päcklein-Ablage bestätigt.
+- **ROT + GELB:** Nur 360°-Servo drehen bis Endschalter (kein Arm). Noch nicht vollständig validiert.
+- **360°-Servo Kick-Start implementiert (2026-04-19):**
+  - `SERVO360_KICK_SPEED=0.55f` für 150ms (8 Loops), dann `SERVO360_ALIGN_SPEED=0.51f`
+  - Kick überwindet Haftreibung zuverlässig ohne Überschiessen
+  - Stopp via `InterruptIn::fall()` ISR → `s_endstop_hit` Flag → `disable()` in Task-Loop
+  - Fallback: 5s (`SERVO360_ALIGN_LOOPS=250`) falls Endschalter nicht reagiert
+- **Initial-Ausrichtung beim Start:** Alle 8 Sensoren aktiv → D1→0.0f, D2→1.0f, 360° dreht mit Kick bis Endschalter
 
 ## Stack
 - Sprache: C++14
@@ -84,7 +76,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - Grünes Popup: kein Timeout, schliesst nur bei Maus/Tastatur; Stimme 3x (sofort, +20s, +40s)
 - Alle Popups: `WaitUntilDone(-1)` nach `ShowDialog()` — Stimme spricht zu Ende auch nach frühem Dismiss
 - VSCode-Fokus via `AttachThreadInput` in `focus_vscode.ps1` — funktioniert aus nicht-fokussiertem Prozess
-- `PROTOTYPE_02_V11` ist aktuell aktiv in `test_config.h` (v10 bleibt als Backup)
+- `PROTOTYPE_02_V13` ist aktuell aktiv in `test_config.h` (v12 bleibt als Backup)
 - `led1` (PB_9/PB_10) aus `main.cpp` entfernt (2026-04-13) — `user_led` (LED1) übernimmt in allen Test-Funktionen
 - Endschalter 360°-Servo: **A0 (PC_2)**, `DigitalIn` PullUp — in v11 integriert, stoppt 360° bei `read()==0` (korrigiert 2026-04-19, vorher fälschlich PC_5)
 - roboter_v10: SMALL_REENTRY_GUARD=100 (2s) verhindert Stopp auf Farbkarte statt echtem Querbalken
@@ -120,16 +112,13 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Flash `PROTOTYPE_02_V11` und validieren ob aktive Reverse-Bremsung das Überschiessen behebt.** Erwartung: 360°-Servo stoppt präzise ~90° (nicht mehr 180°) am Endschalter. Falls weiterhin Überschiessen: in `src/prototype02_v11.cpp:75–77` Parameter anpassen — `SERVO360_BRAKE_LOOPS` schrittweise auf 3–4 erhöhen und/oder `SERVO360_BRAKE_PULSE` weiter von 0.5 entfernen (z.B. 0.18f für stärkeren Gegenpuls). Test-Farben: ROT, GELB, BLAU, sowie Initial-Ausrichtung beim Start.
-2. **GELB 360°-Servo Richtung prüfen** — mit `SERVO360_ALIGN_SPEED=0.77f` dreht GELB jetzt in die gleiche Richtung wie ROT/BLAU. Falls er in die falsche Richtung dreht: für GELB eigenen Wert `< 0.5f` verwenden (z.B. 0.23f).
-3. **Angle Clamp validieren** — Roboter auf gerader Strecke und in Kurven fahren lassen. Falls träge: `MAX_ANGLE_STEP` in `lib/LineFollower/LineFollower.cpp` erhöhen oder `ANGLE_CLAMP_ENABLED` auskommentieren.
-4. **Gesamtprogramm durchgehend fahren:** 4 Querbalken + 4 kurze Linien + Servo-Aktionen in richtiger Reihenfolge.
+1. **ROT und GELB implementieren:** Roboter fährt vorwärts, dann volle Arm-Sequenz wie GRÜN/BLAU (D1 ausfahren → D2 senken → D2 hoch → D1 ein → 360° bis Endschalter). D2-Tiefe für ROT/GELB noch festlegen (Referenz: GRÜN=0.4f, BLAU=0.8f). Implementierung in `src/prototype02_v13.cpp` in CROSSING_STOP und SMALL_CROSSING_STOP (case 3 und case 4).
+2. **Gesamtprogramm durchgehend fahren:** 4 Querbalken + 4 kurze Linien + alle Servo-Aktionen in richtiger Reihenfolge.
 
 ## Offene Fragen
-- **Reicht 2 Loops Reverse-Bremsung?** — Bei 0.77f Geschwindigkeit und Servo-Masse → Erfahrungswert prüfen. Option: Bremspuls-Dauer dynamisch nach `SERVO360_ALIGN_SPEED` skalieren.
-- **GELB Drehrichtung** — vor dem Pin-Fix war GELB bei 0.80 und hat sich gar nicht korrekt gedreht. Jetzt mit 0.77f identisch zu ROT/BLAU — soll GELB in die gleiche Richtung drehen oder in die entgegengesetzte? Falls entgegengesetzt: eigene Konstante.
+- **GRÜN D2-Tiefe 0.4f korrekt?** — Physisch noch nicht verifiziert ob das tatsächlich 10mm tiefer ist als BLAU (0.8f). Nach Test anpassen.
 - **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
-- Was passiert bei FINAL_HALT nach den 4 kleinen Linien — braucht es eine finale Aktion?
+- **Was passiert bei FINAL_HALT** nach den 4 kleinen Linien — braucht es eine finale Aktion?
 
 ## Session-Routine
 Am Ende jeder Session:
