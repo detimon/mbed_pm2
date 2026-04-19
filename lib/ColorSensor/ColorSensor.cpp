@@ -280,18 +280,18 @@ int ColorSensor::getColor()
     const float NORM_DELTA_MIN  = 0.03f;  // norm(max-min) below => too diluted to classify
 
     // Hue-based colour thresholds (degrees, 0-360).
-    // Hue is invariant to white-floor dilution: adding equal light to all channels
-    // shifts saturation but NOT hue. Measured static values:
-    //   ROT:  hue ≈   6°  (g0/r0=0.107 → hue=60°×0.107≈6°)
-    //   GELB: hue ≈  36°  (g0/r0=0.622 → hue=60°×0.622≈37°)
-    //   GRÜN: hue ≈ 124°  (from applyCalibration output)
-    //   BLAU: hue ≈ 224°  (from applyCalibration output)
-    const float HUE_RED_MAX    = 20.0f;   // 0°–20°    = ROT
-    const float HUE_YELLOW_MAX = 80.0f;   // 20°–80°   = GELB
-    const float HUE_GREEN_MAX  = 180.0f;  // 80°–180°  = GRÜN
-    const float HUE_BLUE_MIN   = 218.0f;  // 180°–218° = UNKNOWN (fängt WHITE ≈204°–210° ab)
-    const float HUE_BLUE_MAX   = 280.0f;  // 218°–280° = BLAU
-    const float HUE_RED_MIN    = 330.0f;  // 330°–360° = ROT (wrap-around)
+    // Messung 2026-04-19 (neue Sensorhalterung):
+    //   BLAU:  hue ≈ 364°–3°  (wrap — sehr niedrig, knapp unter ROT)
+    //   ROT:   hue ≈ 11°–14°
+    //   WHITE: hue ≈ 30°       (UNKNOWN-Schutzzone)
+    //   GELB:  hue ≈ 37°–40°
+    //   GRÜN:  hue ≈ 62°–66°
+    const float HUE_BLUE_MAX_LOW  =   7.0f;  // 0°–7°     = BLAU (wrap-Bereich)
+    const float HUE_RED_MAX       =  20.0f;  // 7°–20°    = ROT
+    const float HUE_WHITE_MAX     =  32.0f;  // 20°–32°   = UNKNOWN (fängt WHITE ≈30° ab)
+    const float HUE_YELLOW_MAX    =  52.0f;  // 32°–52°   = GELB (erweitert um ±2°)
+    const float HUE_GREEN_MAX     =  80.0f;  // 50°–80°   = GRÜN
+    const float HUE_BLUE_MIN_HIGH = 348.0f;  // 348°–360° = BLAU (wrap-Bereich, erweitert)
 
     const int STABLE_COUNT = 1;
 
@@ -310,11 +310,8 @@ int ColorSensor::getColor()
 
     if (c0 < C0_BLACK_MAX) {
         candidate = 1; // BLACK
-    } else if (satp < SATP_GRAY_MAX && c0 > C0_WHITE_MIN) {
-        candidate = 2; // WHITE
     } else {
-        // ---- Hue-Klassifikation aus normalisierten Werten ----
-        // m_color_norm hat max(R,G,B)=1; delta = max-min misst Sättigung.
+        // ---- Hue-Berechnung (immer, auch bei niedriger Sättigung) ----
         float rn = m_color_norm[0];
         float gn = m_color_norm[1];
         float bn = m_color_norm[2];
@@ -322,27 +319,34 @@ int ColorSensor::getColor()
         float cmin = std::min(rn, std::min(gn, bn));
         float delta = cmax - cmin;
 
-        if (delta < NORM_DELTA_MIN) {
-            candidate = 0; // zu stark verdünnt → UNKNOWN
-        } else {
-            float hue = 0.0f;
+        float hue = 0.0f;
+        if (delta > 1e-6f) {
             if      (cmax == rn) hue = 60.0f * fmodf((gn - bn) / delta, 6.0f);
             else if (cmax == gn) hue = 60.0f * ((bn - rn) / delta + 2.0f);
             else                 hue = 60.0f * ((rn - gn) / delta + 4.0f);
             if (hue < 0.0f) hue += 360.0f;
+        }
 
-            if      (hue < HUE_RED_MAX || hue > HUE_RED_MIN) candidate = 3; // ROT
-            else if (hue < HUE_YELLOW_MAX)                    candidate = 4; // GELB
-            else if (hue < HUE_GREEN_MAX)                     candidate = 5; // GRÜN
-            else if (hue < HUE_BLUE_MIN)                      candidate = 0; // UNKNOWN (WHITE-Zone)
-            else if (hue < HUE_BLUE_MAX)                      candidate = 7; // BLAU
-            else                                               candidate = 0; // UNKNOWN
+        // BLAU-Zone hat Priorität vor WHITE-Check, damit niedrige Sättigung
+        // in der BLAU-Zone nicht als UNKNOWN klassifiziert wird.
+        const bool in_blue_zone = (hue < HUE_BLUE_MAX_LOW || hue > HUE_BLUE_MIN_HIGH);
+
+        if (in_blue_zone) {
+            candidate = 7; // BLAU
+        } else if (satp < SATP_GRAY_MAX && c0 > C0_WHITE_MIN) {
+            candidate = 0; // WHITE → UNKNOWN (keine Action-Farbe)
+        } else if (delta < NORM_DELTA_MIN) {
+            candidate = 0; // zu stark verdünnt → UNKNOWN
+        } else if (hue < HUE_RED_MAX)     candidate = 3; // ROT
+        else if  (hue < HUE_WHITE_MAX)    candidate = 0; // UNKNOWN (WHITE ≈30°)
+        else if  (hue < HUE_YELLOW_MAX)   candidate = 4; // GELB
+        else if  (hue < HUE_GREEN_MAX)    candidate = 5; // GRÜN
+        else                               candidate = 0; // UNKNOWN (80°–348°)
 
 #if COLOR_DEBUG
-            printf("c0=%.1f  rn=%.3f gn=%.3f bn=%.3f  delta=%.3f  hue=%.1f  out=%d\n",
-                   c0, rn, gn, bn, delta, hue, candidate);
+        printf("c0=%.1f  rn=%.3f gn=%.3f bn=%.3f  delta=%.3f  hue=%.1f  out=%d\n",
+               c0, rn, gn, bn, delta, hue, candidate);
 #endif
-        }
     }
 
     // ---- Hysterese ----

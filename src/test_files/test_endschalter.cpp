@@ -4,7 +4,7 @@
 
 #include "test_endschalter.h"
 
-// Endschalter: PC_5 (PB_A2 = A2)
+// Endschalter: PC_2 (A0 auf PES-Board)
 static DigitalIn* g_sw   = nullptr;
 
 static int m_state       = 1; // aktueller Zustand: 1=offen, 0=gedrueckt
@@ -15,7 +15,7 @@ void endschalter_init(int loops_per_second)
 {
     (void)loops_per_second;
 
-    static DigitalIn sw(PC_5, PullUp); // A2
+    static DigitalIn sw(PC_2, PullUp); // A0
     g_sw = &sw;
 
     m_prev = g_sw->read();
@@ -44,8 +44,11 @@ void endschalter_reset(DigitalOut& led)
 
 void endschalter_print()
 {
-    printf("Endschalter(A2): %s  cnt=%d\n",
-           m_state == 0 ? "GEDRUECKT" : "offen    ",
+    // Pin direkt lesen, unabhängig davon ob Task aktiv ist
+    int raw = g_sw ? g_sw->read() : -1;
+    printf("Endschalter(A0/PC_2): raw=%d  state=%s  cnt=%d\n",
+           raw,
+           raw == 0 ? "GEDRUECKT" : "offen    ",
            m_count);
 }
 

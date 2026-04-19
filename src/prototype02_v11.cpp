@@ -71,6 +71,9 @@ static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s total
 static const int   SERVO_ROT_LOOPS        = 75;  // 1.5 s spin for ROT
 static const int   SERVO_GELB_LOOPS       = 50;  // 1.0 s spin for GELB
 static const int   SERVO_1S_LOOPS         = 50;  // 1 s for 180° servo extend/retract phase
+static const float SERVO360_ALIGN_SPEED   = 0.77f; // 360° langsam bis Endschalter — Totzone ab ~0.75, 0.80 war Überschiessen
+static const float SERVO360_BRAKE_PULSE   = 0.23f; // Gegenrichtung für aktives Bremsen (gespiegelt um 0.5 zu ALIGN_SPEED)
+static const int   SERVO360_BRAKE_LOOPS   = 2;     // 40 ms Gegenpuls, danach auf Stop halten
 
 static const float SENSOR_THRESHOLD  = 0.40f;  // v9-start: 0.5f
 
@@ -110,10 +113,12 @@ static Servo*        g_servo    = nullptr;  // 360° servo — D3 (PB_12)
 static Servo*        g_servo_D1 = nullptr;  // 180° servo A — D1 (PC_8)
 static Servo*        g_servo_D2 = nullptr;  // 180° servo B — D2 (PC_6)
 static NeoPixel*     g_np       = nullptr;  // WS2812B colour-debug LED — PB_2 (D0)
-static DigitalIn*    g_endstop  = nullptr;  // Endschalter 360°-Servo — A2 (PC_5)
+static DigitalIn*    g_endstop  = nullptr;  // Endschalter 360°-Servo — A0 (PC_2)
 
 static State m_state           = STATE_BLIND;
 static bool  m_servo360_aligning = false;   // true while 360° servo spins to endstop
+static bool  m_endstop_released  = false;   // true wenn Endschalter mindestens einmal losgelassen wurde (debounce)
+static int   m_servo360_brake_ctr = 0;      // Loops für aktiven Reverse-Brems-Puls nach Endschalter
 static int   m_straight_ctr    = 0;
 static int   m_follow_ctr      = 0;
 static int   m_brake_ctr       = 0;
@@ -201,7 +206,7 @@ void roboter_v11_init(int loops_per_second)
     static Servo servo_D1(PC_8);
     static Servo servo_D2(PC_6);
     static NeoPixel neopixel(PB_2);
-    static DigitalIn endstop(PC_5, PullUp);
+    static DigitalIn endstop(PC_2, PullUp);
 
     g_M1       = &motor_M1;
     g_M2       = &motor_M2;
@@ -303,9 +308,22 @@ void roboter_v11_task(DigitalOut& led)
 
     *g_en = 1;
 
-    if (m_servo360_aligning && g_endstop->read() == 0) {
-        g_servo->disable();
-        m_servo360_aligning = false;
+    if (m_servo360_aligning) {
+        int sw = g_endstop->read();
+        if (!m_endstop_released && sw == 1) {
+            m_endstop_released = true;   // Endschalter hat Ausgangsposition verlassen
+        }
+        if (m_endstop_released && sw == 0) {
+            g_servo->setPulseWidth(SERVO360_BRAKE_PULSE); // aktiv in Gegenrichtung bremsen
+            m_servo360_brake_ctr = SERVO360_BRAKE_LOOPS;
+            m_servo360_aligning  = false;
+            m_endstop_released   = false;
+        }
+    } else if (m_servo360_brake_ctr > 0) {
+        m_servo360_brake_ctr--;
+        if (m_servo360_brake_ctr == 0) {
+            g_servo->setPulseWidth(0.5f); // nach Gegenpuls auf Stop-Mitte halten (kein disable → bleibt aktiv)
+        }
     }
 
     switch (m_state) {
@@ -319,8 +337,9 @@ void roboter_v11_task(DigitalOut& led)
             if (all_sensors_active()) {
                 g_servo_D1->enable(0.0f);   // D1 komplett eingefahren
                 g_servo_D2->enable(1.0f);   // D2 komplett oben
-                g_servo->enable(0.80f);     // 360° langsam drehen bis Endschalter
+                g_servo->enable(SERVO360_ALIGN_SPEED); // 360° langsam drehen bis Endschalter
                 m_servo360_aligning = true;
+                m_endstop_released  = false; // erst Endschalter loslassen, dann stoppen
                 m_straight_ctr = STRAIGHT_LOOPS;
                 m_state        = STATE_STRAIGHT;
             }
@@ -581,20 +600,18 @@ void roboter_v11_task(DigitalOut& led)
             // Phase 2: Servo feuern nach Lesephase
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 switch (m_action_color) {
-                    case 3:  g_servo->enable(0.90f);    break; // ROT  — D3 schnell
-                    case 4:  g_servo->enable(0.80f);    break; // GELB — D3 langsam
+                    case 3:  g_servo->enable(SERVO360_ALIGN_SPEED); m_servo360_aligning = true; m_endstop_released = false; break; // ROT — bis Endschalter
+                    case 4:  g_servo->enable(SERVO360_ALIGN_SPEED); m_servo360_aligning = true; m_endstop_released = false; break; // GELB — bis Endschalter
                     case 5:  g_servo_D1->enable(1.0f);  break; // GRÜN — D1 ausfahren
-                    case 7:  g_servo_D1->enable(0.2f);  break; // BLAU — D1 20% ausfahren (D1: 0.0=ein, 1.0=aus)
+                    case 7:  g_servo_D1->enable(0.95f); break; // BLAU — D1 85% ausfahren (D1: 0.0=ein, 1.0=aus)
                     default: break;                             // kein Signal → kein Servo
                 }
             }
-            // Stop ROT servo after SERVO_ROT_LOOPS, GELB after SERVO_GELB_LOOPS (ab Servo-Start)
-            if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE - SERVO_GELB_LOOPS && m_action_color == 4) g_servo->disable();
             // Retract 180° servo after SERVO_1S_LOOPS (ab Servo-Start)
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE - SERVO_1S_LOOPS) {
                 if (m_action_color == 5) g_servo_D1->setPulseWidth(0.0f);
             }
-            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° drehen
+            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° drehen bis Endschalter
             if (m_action_color == 7) {
                 if (m_crossing_ctr == 60) g_servo_D2->enable(0.8f);          // D2 senken 20% (D2: 1.0=oben, 0.0=unten)
                 if (m_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);   // D2 komplett hoch
@@ -604,12 +621,13 @@ void roboter_v11_task(DigitalOut& led)
                 }
                 if (m_crossing_ctr == 25) {
                     g_servo_D1->disable();
-                    g_servo->enable(0.80f);                                   // 360° langsam
+                    g_servo->enable(SERVO360_ALIGN_SPEED);                    // 360° langsam — läuft bis Endschalter
+                    m_servo360_aligning = true;
+                    m_endstop_released  = false;
                 }
-                if (m_crossing_ctr == 15) g_servo->disable();                // 360° stopp
             }
             if (m_crossing_ctr == 1) {
-                if (m_action_color == 3) g_servo->disable();
+                // ROT wird jetzt am Endschalter gestoppt, nicht zeitbasiert
                 if (m_action_color == 5) g_servo_D1->disable();
             }
 
@@ -730,20 +748,18 @@ void roboter_v11_task(DigitalOut& led)
             // Phase 2: Servo feuern nach Lesephase
             if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 switch (m_action_color) {
-                    case 3:  g_servo->enable(0.90f);    break; // ROT  — D3 schnell
-                    case 4:  g_servo->enable(0.80f);    break; // GELB — D3 langsam
+                    case 3:  g_servo->enable(SERVO360_ALIGN_SPEED); m_servo360_aligning = true; m_endstop_released = false; break; // ROT — bis Endschalter
+                    case 4:  g_servo->enable(SERVO360_ALIGN_SPEED); m_servo360_aligning = true; m_endstop_released = false; break; // GELB — bis Endschalter
                     case 5:  g_servo_D1->enable(1.0f);  break; // GRÜN — D1 ausfahren
-                    case 7:  g_servo_D1->enable(0.2f);  break; // BLAU — D1 20% ausfahren (D1: 0.0=ein, 1.0=aus)
+                    case 7:  g_servo_D1->enable(0.95f); break; // BLAU — D1 85% ausfahren (D1: 0.0=ein, 1.0=aus)
                     default: break;                             // kein Signal → kein Servo
                 }
             }
-            // Stop ROT servo after SERVO_ROT_LOOPS, GELB after SERVO_GELB_LOOPS (ab Servo-Start)
-            if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE - SERVO_GELB_LOOPS && m_action_color == 4) g_servo->disable();
             // Retract 180° servo after SERVO_1S_LOOPS (ab Servo-Start)
             if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE - SERVO_1S_LOOPS) {
                 if (m_action_color == 5) g_servo_D1->setPulseWidth(0.0f);
             }
-            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° drehen
+            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° drehen bis Endschalter
             if (m_action_color == 7) {
                 if (m_small_crossing_ctr == 60) g_servo_D2->enable(0.8f);          // D2 senken 20% (D2: 1.0=oben, 0.0=unten)
                 if (m_small_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);   // D2 komplett hoch
@@ -753,12 +769,13 @@ void roboter_v11_task(DigitalOut& led)
                 }
                 if (m_small_crossing_ctr == 25) {
                     g_servo_D1->disable();
-                    g_servo->enable(0.80f);                                         // 360° langsam
+                    g_servo->enable(SERVO360_ALIGN_SPEED);                          // 360° langsam — läuft bis Endschalter
+                    m_servo360_aligning = true;
+                    m_endstop_released  = false;
                 }
-                if (m_small_crossing_ctr == 15) g_servo->disable();                // 360° stopp
             }
             if (m_small_crossing_ctr == 1) {
-                if (m_action_color == 3) g_servo->disable();
+                // ROT wird jetzt am Endschalter gestoppt, nicht zeitbasiert
                 if (m_action_color == 5) g_servo_D1->disable();
             }
 
@@ -800,6 +817,8 @@ void roboter_v11_reset(DigitalOut& led)
     g_cmd_M2             = 0.0f;
     m_state              = STATE_BLIND;
     m_servo360_aligning  = false;
+    m_endstop_released   = false;
+    m_servo360_brake_ctr = 0;
     m_straight_ctr       = 0;
     m_follow_ctr         = 0;
     m_brake_ctr      = 0;
