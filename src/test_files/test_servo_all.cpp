@@ -56,25 +56,25 @@ void servo_all_task(DigitalOut& led1)
 {
     led1 = 1;
 
-    if (!mp_servo_a->isEnabled())   mp_servo_a->enable();
+    // if (!mp_servo_a->isEnabled())   mp_servo_a->enable();   // D1 horizontal — deaktiviert
     if (!mp_servo_b->isEnabled())   mp_servo_b->enable();
-    if (!mp_servo_360->isEnabled()) mp_servo_360->enable();
+    // if (!mp_servo_360->isEnabled()) mp_servo_360->enable(); // 360° — deaktiviert
 
     // 180° servos: snap between 0° and 180° every 2 seconds (full speed)
     if ((m_counter % (m_lps * 2) == 0) && (m_counter != 0)) {
-        m_input_a = m_dir_a ? 1.0f : 0.0f;
-        m_dir_a   = !m_dir_a;
+        // m_input_a = m_dir_a ? 1.0f : 0.0f;
+        // m_dir_a   = !m_dir_a;
         m_input_b = m_dir_b ? 1.0f : 0.0f;
         m_dir_b   = !m_dir_b;
     }
 
     // 360° servo: full CW -> full CCW, 3 s each phase
-    int phase        = (m_counter / (m_lps * PHASE_DURATION_S)) % 2;
-    float input_360  = INPUTS_360[phase];
+    // int phase        = (m_counter / (m_lps * PHASE_DURATION_S)) % 2;
+    // float input_360  = INPUTS_360[phase];
 
-    mp_servo_a->setPulseWidth(m_input_a);
+    // mp_servo_a->setPulseWidth(m_input_a);
     mp_servo_b->setPulseWidth(m_input_b);
-    mp_servo_360->setPulseWidth(input_360);
+    // mp_servo_360->setPulseWidth(input_360);
 
     m_counter++;
 }

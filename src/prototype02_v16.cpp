@@ -1,9 +1,9 @@
-// CargoSweep — PROTOTYPE_02_V14
+// CargoSweep — PROTOTYPE_02_V16
 #include "test_config.h"
 
-#ifdef PROTOTYPE_02_V14
+#ifdef PROTOTYPE_02_V16
 
-#include "prototype02_v14.h"
+#include "prototype02_v16.h"
 #include "Servo.h"
 #include "NeoPixel.h"
 
@@ -69,13 +69,14 @@ static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide 
 static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s total
 
 static const int   SERVO_1S_LOOPS         = 50;   // 1 s for 180° servo extend/retract phase
-static const float SERVO_D2_BLAU_DOWN     = 0.8f;  // D2 Tiefe für BLAU
-static const float SERVO_D2_GRUEN_DOWN    = 0.4f;  // D2 Tiefe für GRÜN (10mm tiefer als BLAU)
+static const float SERVO_D2_BLAU_DOWN     = 0.30f;   // D2 Tiefe für BLAU
+static const float SERVO_D2_GRUEN_DOWN    = 0.08f;   // D2 Tiefe für GRÜN
 static const float SERVO360_KICK_SPEED    = 0.55f;  // Anlauf-Geschwindigkeit (überwindet Haftreibung)
 static const int   SERVO360_KICK_LOOPS    = 8;      // 150 ms Kick, dann auf Zielgeschwindigkeit
-static const float SERVO360_ALIGN_SPEED   = 0.52f;  // CCW Zielgeschwindigkeit nach Kick
+static const float SERVO360_ALIGN_SPEED   = 0.55f;  // CCW Zielgeschwindigkeit nach Kick
 static const int   SERVO360_ALIGN_LOOPS   = 250;    // max 5 s Ausrichtung (250 * 20ms)
 static const int   SERVO360_BRAKE_LOOPS   = 1;      // sofort bremsen bei Endschalter-Hit
+static const float ROT_GELB_DRIVE_ROTS   = 0.120f / (3.14159265f * D_WHEEL); // 120mm in Umdrehungen
 
 static const float SENSOR_THRESHOLD  = 0.40f;  // v9-start: 0.5f
 
@@ -100,7 +101,9 @@ enum State {
     // --- real program: small lines ---
     STATE_SMALL_FOLLOW        = 12, // line follower after wide bars
     STATE_SMALL_CROSSING_STOP = 13, // 3 s stop at each small line (PLACEHOLDER)
-    STATE_FINAL_HALT          = 11  // stop forever after 4th small line
+    STATE_FINAL_HALT          = 11, // stop forever after 4th small line
+    STATE_ROT_GELB_DRIVE      = 16, // Linienfolge genau 120mm nach ROT/GELB
+    STATE_ROT_GELB_PAUSE      = 17  // 1s Standstill danach
 };
 
 // ---------------------------------------------------------------------------
@@ -152,6 +155,10 @@ static int   m_slow_ctr             = 0;     // loops since slowdown started
 static int   m_color_delay_ctr      = 0;     // loops remaining before colour polling is re-enabled
 static int   m_color_stable_ctr     = 0;     // consecutive matching reads of the same action colour
 static int   m_color_pending        = 0;     // the action colour currently being confirmed
+static int   m_arm_retract_ctr      = 0;     // post-servo arm retraction countdown (GRÜN/BLAU)
+static float m_drive_dist           = 0.0f;  // akkumulierte Umdrehungen in STATE_ROT_GELB_DRIVE
+static bool  m_rot_gelb_is_small    = false; // true = kam von SMALL_CROSSING_STOP
+static int   m_rot_gelb_color       = 0;     // 3=ROT (→ GRÜN-Logik), 4=GELB (→ BLAU-Logik)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -195,7 +202,7 @@ static bool small_line_active()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v14_init(int loops_per_second)
+void roboter_v16_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -227,7 +234,7 @@ void roboter_v14_init(int loops_per_second)
     g_cs->switchLed(ON);
     g_servo->calibratePulseMinMax(0.0303f, 0.1223f); // kalibriert 2026-03-26 (test_drehservo_90)
     g_servo_D1->calibratePulseMinMax(0.050f, 0.1050f);
-    g_servo_D2->calibratePulseMinMax(0.050f, 0.1050f);
+    g_servo_D2->calibratePulseMinMax(0.0314f, 0.1232f);
 
     g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
     g_lf->setMaxWheelVelocity(MAX_SPEED);
@@ -266,12 +273,16 @@ void roboter_v14_init(int loops_per_second)
     m_color_delay_ctr      = 0;
     m_color_stable_ctr     = 0;
     m_color_pending        = 0;
+    m_arm_retract_ctr      = 0;
+    m_drive_dist           = 0.0f;
+    m_rot_gelb_is_small    = false;
+    m_rot_gelb_color       = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v14_task(DigitalOut& led)
+void roboter_v16_task(DigitalOut& led)
 {
     // --- Farbsensor ---
     m_current_color  = g_cs->getColor();
@@ -523,6 +534,7 @@ void roboter_v14_task(DigitalOut& led)
                 m_action_color     = 0;
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
+                m_arm_retract_ctr  = 0;
                 m_state            = STATE_CROSSING_STOP;
             }
             break;
@@ -588,6 +600,7 @@ void roboter_v14_task(DigitalOut& led)
                 m_action_color     = 0;
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
+                m_arm_retract_ctr  = 0;
                 m_state            = STATE_CROSSING_STOP;
             }
             break;
@@ -621,45 +634,52 @@ void roboter_v14_task(DigitalOut& led)
             // Phase 2: Servo feuern nach Lesephase
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 switch (m_action_color) {
-                    case 3:  // ROT  — 360° Servo drehen bis Endschalter
-                    case 4:  // GELB — 360° Servo drehen bis Endschalter
-                        g_servo->enable(SERVO360_KICK_SPEED);
-                        m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
-                        m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
-                        s_endstop_hit       = false;
-                        break;
-                    case 5:  g_servo_D1->enable(0.95f); break; // GRÜN — D1 ausfahren (wie BLAU)
-                    case 7:  g_servo_D1->enable(0.95f); break; // BLAU — D1 85% ausfahren
+                    case 3:  break; // ROT  — kein Servo, danach 120mm weiterfahren
+                    case 4:  break; // GELB — kein Servo, danach 120mm weiterfahren
+                    case 5:  g_servo_D1->enable(0.95f); break; // GRÜN — D1 ausfahren
+                    case 7:  g_servo_D1->enable(0.95f); break; // BLAU — D1 ausfahren
                     default: break;
                 }
             }
-            // GRÜN Sequenz: ausfahren → tiefer senken → hoch → einfahren → 360° bis Endschalter
+            // GRÜN: arm aus → runter → vor 0.2s → warten 0.4s → zurück 0.2s → hoch → ein → 90°
             if (m_action_color == 5) {
                 if (m_crossing_ctr == 60) g_servo_D2->enable(SERVO_D2_GRUEN_DOWN);
-                if (m_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);
-                if (m_crossing_ctr == 35) {
-                    g_servo_D2->disable();
-                    g_servo_D1->setPulseWidth(0.0f);
-                }
-                if (m_crossing_ctr == 25) {
-                    g_servo_D1->disable();
-                    g_servo->enable(SERVO360_KICK_SPEED);
-                    m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
-                    m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
-                    s_endstop_hit       = false;
-                }
+                if (m_crossing_ctr == 45) m_arm_retract_ctr = 108;
             }
-            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° bis Endschalter
+            // BLAU: gleiche Sequenz, andere D2-Tiefe
             if (m_action_color == 7) {
                 if (m_crossing_ctr == 60) g_servo_D2->enable(SERVO_D2_BLAU_DOWN);
-                if (m_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);
-                if (m_crossing_ctr == 35) {
-                    g_servo_D2->disable();
-                    g_servo_D1->setPulseWidth(0.0f);
+                if (m_crossing_ctr == 45) m_arm_retract_ctr = 108;
+            }
+            // Schiebe/Zieh + Rückzug + 90°-Drehung (GRÜN + BLAU)
+            if ((m_action_color == 5 || m_action_color == 7) && m_arm_retract_ctr > 0) {
+                if (m_arm_retract_ctr == 108) g_servo->enable(0.52f);         // vorwärts 320ms
+                if (m_arm_retract_ctr == 92)  g_servo->enable(0.5f);          // stop — 0.8s Warten
+                if (m_arm_retract_ctr == 82)  g_servo_D1->setPulseWidth(0.97f);  // D1 minimal vor
+                if (m_arm_retract_ctr == 78)  g_servo_D1->setPulseWidth(0.95f);  // D1 zurück
+                if (m_arm_retract_ctr == 72) {
+                    if (m_action_color == 5) g_servo_D2->setPulseWidth(SERVO_D2_GRUEN_DOWN - 0.03f);
+                    if (m_action_color == 7) g_servo_D2->setPulseWidth(SERVO_D2_BLAU_DOWN  - 0.03f);
                 }
-                if (m_crossing_ctr == 25) {
+                if (m_arm_retract_ctr == 68) {
+                    if (m_action_color == 5) g_servo_D2->setPulseWidth(SERVO_D2_GRUEN_DOWN);
+                    if (m_action_color == 7) g_servo_D2->setPulseWidth(SERVO_D2_BLAU_DOWN);
+                }
+                if (m_arm_retract_ctr == 52) g_servo->enable(0.37f);          // rückwärts 160ms
+                if (m_arm_retract_ctr == 44) {
+                    g_servo->enable(0.5f);                                     // stop
+                    g_servo_D2->setPulseWidth(1.0f);                           // D2 hoch
+                }
+                if (m_arm_retract_ctr == 29) {
+                    g_servo_D1->setPulseWidth(0.0f);                           // D1 einfahren
+                }
+                if (m_arm_retract_ctr == 14) {
+                    g_servo_D2->disable();                                     // D2 disable (0.6s nach hoch)
+                }
+                m_arm_retract_ctr--;
+                if (m_arm_retract_ctr == 0) {
                     g_servo_D1->disable();
-                    g_servo->enable(SERVO360_KICK_SPEED);
+                    g_servo->enable(SERVO360_KICK_SPEED);                      // 90° bis Endschalter
                     m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
                     m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
                     s_endstop_hit       = false;
@@ -667,14 +687,23 @@ void roboter_v14_task(DigitalOut& led)
             }
 
             m_crossing_ctr--;
-            if (m_crossing_ctr <= 0 && m_servo360_ctr == 0) {
+            if (m_crossing_ctr <= 0 && m_servo360_ctr == 0 && m_arm_retract_ctr == 0) {
+                int exit_color     = m_action_color;
                 m_slowing          = false;
                 m_slow_ctr         = 0;
                 m_action_color     = 0;
                 m_color_delay_ctr  = COLOR_READ_DELAY;
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
-                if (m_crossings_left == 0) {
+                m_arm_retract_ctr  = 0;
+                if (exit_color == 3 || exit_color == 4) {
+                    m_drive_dist        = 0.0f;
+                    m_rot_gelb_color    = exit_color;
+                    m_rot_gelb_is_small = false;
+                    g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
+                    g_lf->setMaxWheelVelocity(MAX_SPEED);
+                    m_state = STATE_ROT_GELB_DRIVE;
+                } else if (m_crossings_left == 0) {
                     // all 4 wide bars done → move on to small lines
                     m_small_crossings_left = TOTAL_SMALL_CROSSINGS;
                     m_guard_ctr            = SMALL_FOLLOW_START_GUARD;
@@ -752,6 +781,7 @@ void roboter_v14_task(DigitalOut& led)
                 m_action_color       = 0;
                 m_color_stable_ctr   = 0;
                 m_color_pending      = 0;
+                m_arm_retract_ctr    = 0;
                 m_state              = STATE_SMALL_CROSSING_STOP;
             }
             break;
@@ -783,45 +813,42 @@ void roboter_v14_task(DigitalOut& led)
             // Phase 2: Servo feuern nach Lesephase
             if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 switch (m_action_color) {
-                    case 3:  // ROT  — 360° Servo drehen bis Endschalter
-                    case 4:  // GELB — 360° Servo drehen bis Endschalter
-                        g_servo->enable(SERVO360_KICK_SPEED);
-                        m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
-                        m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
-                        s_endstop_hit       = false;
-                        break;
-                    case 5:  g_servo_D1->enable(0.95f); break; // GRÜN — D1 ausfahren (wie BLAU)
-                    case 7:  g_servo_D1->enable(0.95f); break; // BLAU — D1 85% ausfahren
+                    case 3:  break; // ROT  — kein Servo, danach 120mm weiterfahren
+                    case 4:  break; // GELB — kein Servo, danach 120mm weiterfahren
+                    case 5:  g_servo_D1->enable(0.95f); break; // GRÜN — D1 ausfahren
+                    case 7:  g_servo_D1->enable(0.95f); break; // BLAU — D1 ausfahren
                     default: break;
                 }
             }
-            // GRÜN Sequenz: ausfahren → tiefer senken → hoch → einfahren → 360° bis Endschalter
+            // GRÜN: arm aus → runter → vor 0.2s → warten 0.8s → zurück 0.2s → hoch → ein → 90°
             if (m_action_color == 5) {
                 if (m_small_crossing_ctr == 60) g_servo_D2->enable(SERVO_D2_GRUEN_DOWN);
-                if (m_small_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);
-                if (m_small_crossing_ctr == 35) {
-                    g_servo_D2->disable();
-                    g_servo_D1->setPulseWidth(0.0f);
-                }
-                if (m_small_crossing_ctr == 25) {
-                    g_servo_D1->disable();
-                    g_servo->enable(SERVO360_KICK_SPEED);
-                    m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
-                    m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
-                    s_endstop_hit       = false;
-                }
+                if (m_small_crossing_ctr == 45) m_arm_retract_ctr = 108;
             }
-            // BLAU Sequenz: ausfahren → senken → hoch → einfahren → 360° bis Endschalter
+            // BLAU: gleiche Sequenz, andere D2-Tiefe
             if (m_action_color == 7) {
                 if (m_small_crossing_ctr == 60) g_servo_D2->enable(SERVO_D2_BLAU_DOWN);
-                if (m_small_crossing_ctr == 45) g_servo_D2->setPulseWidth(1.0f);
-                if (m_small_crossing_ctr == 35) {
-                    g_servo_D2->disable();
-                    g_servo_D1->setPulseWidth(0.0f);
+                if (m_small_crossing_ctr == 45) m_arm_retract_ctr = 108;
+            }
+            // Schiebe/Zieh + Rückzug + 90°-Drehung (GRÜN + BLAU) — kein Arm-Wiggle
+            if ((m_action_color == 5 || m_action_color == 7) && m_arm_retract_ctr > 0) {
+                if (m_arm_retract_ctr == 108) g_servo->enable(0.52f);         // vorwärts 320ms
+                if (m_arm_retract_ctr == 92)  g_servo->enable(0.5f);          // stop — 0.8s Warten
+                if (m_arm_retract_ctr == 52) g_servo->enable(0.37f);          // rückwärts 160ms
+                if (m_arm_retract_ctr == 44) {
+                    g_servo->enable(0.5f);                                     // stop
+                    g_servo_D2->setPulseWidth(1.0f);                           // D2 hoch
                 }
-                if (m_small_crossing_ctr == 25) {
+                if (m_arm_retract_ctr == 29) {
+                    g_servo_D1->setPulseWidth(0.0f);                           // D1 einfahren
+                }
+                if (m_arm_retract_ctr == 14) {
+                    g_servo_D2->disable();                                     // D2 disable (0.6s nach hoch)
+                }
+                m_arm_retract_ctr--;
+                if (m_arm_retract_ctr == 0) {
                     g_servo_D1->disable();
-                    g_servo->enable(SERVO360_KICK_SPEED);
+                    g_servo->enable(SERVO360_KICK_SPEED);                      // 90° bis Endschalter
                     m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
                     m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
                     s_endstop_hit       = false;
@@ -829,14 +856,23 @@ void roboter_v14_task(DigitalOut& led)
             }
 
             m_small_crossing_ctr--;
-            if (m_small_crossing_ctr <= 0 && m_servo360_ctr == 0) {
+            if (m_small_crossing_ctr <= 0 && m_servo360_ctr == 0 && m_arm_retract_ctr == 0) {
+                int exit_color     = m_action_color;
                 m_slowing          = false;
                 m_slow_ctr         = 0;
                 m_action_color     = 0;
                 m_color_delay_ctr  = COLOR_READ_DELAY;
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
-                if (m_small_crossings_left == 0) {
+                m_arm_retract_ctr  = 0;
+                if (exit_color == 3 || exit_color == 4) {
+                    m_drive_dist        = 0.0f;
+                    m_rot_gelb_color    = exit_color;
+                    m_rot_gelb_is_small = true;
+                    g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
+                    g_lf->setMaxWheelVelocity(MAX_SPEED);
+                    m_state = STATE_ROT_GELB_DRIVE;
+                } else if (m_small_crossings_left == 0) {
                     m_state = STATE_FINAL_HALT;
                 } else {
                     m_guard_ctr       = SMALL_REENTRY_GUARD;
@@ -845,6 +881,96 @@ void roboter_v14_task(DigitalOut& led)
                 }
             }
             break;
+
+        // ----------------------------------------------------------------
+        // ROT_GELB_DRIVE: Linienfolge genau 120mm (encoder-basiert)
+        // ----------------------------------------------------------------
+        case STATE_ROT_GELB_DRIVE: {
+            g_lf->setMaxWheelVelocity(MAX_SPEED);
+            g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity();
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity();
+            g_M1->setVelocity(g_cmd_M1);
+            g_M2->setVelocity(g_cmd_M2);
+            m_drive_dist += (fabsf(g_M1->getVelocity()) + fabsf(g_M2->getVelocity())) * 0.5f * 0.020f;
+            if (m_drive_dist >= ROT_GELB_DRIVE_ROTS) {
+                g_M1->setVelocity(0.0f);
+                g_M2->setVelocity(0.0f);
+                m_arm_retract_ctr = 138;  // 30 Setup + 108 Arm-Sequenz
+                m_state           = STATE_ROT_GELB_PAUSE;
+            }
+            break;
+        }
+
+        // ----------------------------------------------------------------
+        // ROT_GELB_PAUSE: Arm-Sequenz (ROT→GRÜN-Logik, GELB→BLAU-Logik)
+        // Einzel-Counter arm_retract_ctr=138: 138→D1 aus, 123→D2 runter, 108→360° vor, ...
+        // ----------------------------------------------------------------
+        case STATE_ROT_GELB_PAUSE: {
+            g_M1->setVelocity(0.0f);
+            g_M2->setVelocity(0.0f);
+
+            // Arm-Sequenz (138 Loops total: 30 Setup + 108 Arm)
+            // ROT→GRÜN-Logik (SERVO_D2_GRUEN_DOWN), GELB→BLAU-Logik (SERVO_D2_BLAU_DOWN)
+            if (m_arm_retract_ctr > 0) {
+                float d2_depth = (m_rot_gelb_color == 4) ? SERVO_D2_BLAU_DOWN : SERVO_D2_GRUEN_DOWN;
+                if (m_arm_retract_ctr == 138) g_servo_D1->enable(0.95f);
+                if (m_arm_retract_ctr == 123) g_servo_D2->enable(d2_depth);
+                if (m_arm_retract_ctr == 108) g_servo->enable(0.52f);
+                if (m_arm_retract_ctr == 92)  g_servo->enable(0.5f);
+                if (!m_rot_gelb_is_small) {  // Wiggle nur bei breiten Balken
+                    if (m_arm_retract_ctr == 82) g_servo_D1->setPulseWidth(0.97f);
+                    if (m_arm_retract_ctr == 78) g_servo_D1->setPulseWidth(0.95f);
+                    if (m_arm_retract_ctr == 72) g_servo_D2->setPulseWidth(d2_depth - 0.03f);
+                    if (m_arm_retract_ctr == 68) g_servo_D2->setPulseWidth(d2_depth);
+                }
+                if (m_arm_retract_ctr == 52) g_servo->enable(0.37f);
+                if (m_arm_retract_ctr == 44) {
+                    g_servo->enable(0.5f);
+                    g_servo_D2->setPulseWidth(1.0f);
+                }
+                if (m_arm_retract_ctr == 29) {
+                    g_servo_D1->setPulseWidth(0.0f);
+                }
+                if (m_arm_retract_ctr == 14) {
+                    g_servo_D2->disable();
+                }
+                m_arm_retract_ctr--;
+                if (m_arm_retract_ctr == 0) {
+                    g_servo_D1->disable();
+                    g_servo->enable(SERVO360_KICK_SPEED);
+                    m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
+                    m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
+                    s_endstop_hit       = false;
+                }
+            }
+
+            // Exit: Arm + 90°-Drehung fertig → weiter
+            if (m_arm_retract_ctr == 0 && m_servo360_ctr == 0) {
+                m_color_delay_ctr = COLOR_READ_DELAY;
+                if (m_rot_gelb_is_small) {
+                    if (m_small_crossings_left == 0) {
+                        m_state = STATE_FINAL_HALT;
+                    } else {
+                        m_guard_ctr       = SMALL_REENTRY_GUARD;
+                        m_small_accel_ctr = 0;
+                        m_state           = STATE_SMALL_FOLLOW;
+                    }
+                } else {
+                    if (m_crossings_left == 0) {
+                        m_small_crossings_left = TOTAL_SMALL_CROSSINGS;
+                        m_guard_ctr            = SMALL_FOLLOW_START_GUARD;
+                        m_small_accel_ctr      = 0;
+                        m_state                = STATE_SMALL_FOLLOW;
+                    } else {
+                        m_guard_ctr      = STOP_GUARD;
+                        m_real_accel_ctr = 0;
+                        m_state          = STATE_REAL_FOLLOW;
+                    }
+                }
+            }
+            break;
+        }
 
         // ----------------------------------------------------------------
         // FINAL_HALT: stop forever
@@ -857,7 +983,7 @@ void roboter_v14_task(DigitalOut& led)
 
 }
 
-void roboter_v14_reset(DigitalOut& led)
+void roboter_v16_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
@@ -894,6 +1020,10 @@ void roboter_v14_reset(DigitalOut& led)
     m_color_delay_ctr      = 0;
     m_color_stable_ctr     = 0;
     m_color_pending        = 0;
+    m_arm_retract_ctr      = 0;
+    m_drive_dist           = 0.0f;
+    m_rot_gelb_is_small    = false;
+    m_rot_gelb_color       = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     m_servo360_ctr = 0;
     g_servo->disable();
@@ -903,7 +1033,7 @@ void roboter_v14_reset(DigitalOut& led)
     led                    = 0;
 }
 
-void roboter_v14_print()
+void roboter_v16_print()
 {
     const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
                     (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :
@@ -918,7 +1048,9 @@ void roboter_v14_print()
                     (m_state == STATE_REAL_FOLLOW)         ? "REAL_FOLLOW " :
                     (m_state == STATE_CROSSING_STOP)       ? "CROSS_STOP  " :
                     (m_state == STATE_SMALL_FOLLOW)        ? "SMALL_FOLLOW" :
-                    (m_state == STATE_SMALL_CROSSING_STOP) ? "SMALL_STOP  " : "FINAL_HALT  ";
+                    (m_state == STATE_SMALL_CROSSING_STOP) ? "SMALL_STOP  " :
+                    (m_state == STATE_ROT_GELB_DRIVE)      ? "RG_DRIVE    " :
+                    (m_state == STATE_ROT_GELB_PAUSE)      ? "RG_PAUSE    " : "FINAL_HALT  ";
     printf("State: %s | wide=%d small=%d | a=%.3f | M1=%+.2f M2=%+.2f | all8=%d s2345=%d\n",
            s,
            m_crossings_left,
@@ -951,4 +1083,4 @@ void roboter_v14_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // PROTOTYPE_02_V14
+#endif // PROTOTYPE_02_V16

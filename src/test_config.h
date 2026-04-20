@@ -17,7 +17,9 @@
 // #define PROTOTYPE_02_V11
 // #define PROTOTYPE_02_V12
 // #define PROTOTYPE_02_V13
-#define PROTOTYPE_02_V14
+// #define PROTOTYPE_02_V14
+// #define PROTOTYPE_02_V15
+#define PROTOTYPE_02_V16
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
 // #define TEST_COLOR_SENSOR
@@ -25,7 +27,7 @@
 
 // --- Hardware Tests ---
 // #define TEST_SERVO
-// #define TEST_SERVO_ALL
+//#define TEST_SERVO_ALL
 // #define TEST_SERVO_CALIB
 // #define TEST_IR
 // #define TEST_DC_MOTOR
