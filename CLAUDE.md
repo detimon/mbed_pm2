@@ -1,17 +1,16 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-19)
-- **Aktiv in test_config.h:** `PROTOTYPE_02_V13`
-- **roboter_v13** = aktive Version; **roboter_v12** = Backup
-- **BLAU-Sequenz funktioniert (2026-04-19):** D1 ausfahren (0.95f) → D2 senken (0.8f) → D2 hoch (1.0f) → D1 ein (0.0f) → 360° dreht bis Endschalter. Päcklein-Ablage bestätigt.
-- **GRÜN-Sequenz funktioniert (2026-04-19):** Gleich wie BLAU, aber D2 geht tiefer (`SERVO_D2_GRUEN_DOWN=0.4f`). Päcklein-Ablage bestätigt.
-- **ROT + GELB:** Nur 360°-Servo drehen bis Endschalter (kein Arm). Noch nicht vollständig validiert.
-- **360°-Servo Kick-Start implementiert (2026-04-19):**
-  - `SERVO360_KICK_SPEED=0.55f` für 150ms (8 Loops), dann `SERVO360_ALIGN_SPEED=0.51f`
-  - Kick überwindet Haftreibung zuverlässig ohne Überschiessen
-  - Stopp via `InterruptIn::fall()` ISR → `s_endstop_hit` Flag → `disable()` in Task-Loop
-  - Fallback: 5s (`SERVO360_ALIGN_LOOPS=250`) falls Endschalter nicht reagiert
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-20)
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V14` (neu, noch nicht getestet)
+- **roboter_v14** = neue Testversion mit 0.3s Brake-Delay; **roboter_v13** = Backup (funktioniert)
+- **360°-Servo Brake-Delay implementiert (2026-04-20):** Nach Endschalter-Hit wartet Servo 0.3s (15 Loops @ 50Hz) bevor `disable()`. Gilt universell für Initial-Ausrichtung, CROSSING_STOP (4 Querbalken), SMALL_CROSSING_STOP (4 kleine Linien).
+  - Neue Konstante: `SERVO360_BRAKE_LOOPS = 15`
+  - Neue State-Variable: `m_servo360_brake_ctr`
+  - Logik: `s_endstop_hit=true` → `m_servo360_brake_ctr=15` → 15 Loops zählen → `disable()`
+  - Noch nicht getestet: Funktioniert Delay korrekt? Dreht Servo während Delay ~45° weiter?
+- **BLAU + GRÜN:** Vollständige Arm-Sequenz vorhanden und funktioniert (BLAU bestätigt 2026-04-19)
+- **ROT + GELB:** Nur 360°-Servo drehen bis Endschalter (kein Arm). Noch nicht validiert.
 - **Initial-Ausrichtung beim Start:** Alle 8 Sensoren aktiv → D1→0.0f, D2→1.0f, 360° dreht mit Kick bis Endschalter
 
 ## Stack
@@ -105,6 +104,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - v11 (2026-04-19): Aktive Reverse-Bremsung für 360°-Servo — Konstanten `SERVO360_BRAKE_PULSE=0.23f` / `SERVO360_BRAKE_LOOPS=2`. Bei Endschalter-Trigger: 2 Loops Gegenpuls (gespiegelt um 0.5), danach Stop-Mitte 0.5f. Kein `disable()` → Servo bleibt unter PWM-Kontrolle.
 - v11 (2026-04-19): Endschalter-Debounce via `m_endstop_released` Flag — Endschalter muss erst einmal `read()==1` liefern bevor `==0` als Stopp zählt. Verhindert Sofort-Stopp wenn Servo auf Ausgangsposition steht.
 - v11 (2026-04-19): ROT + GELB stoppen jetzt ebenfalls am Endschalter (nicht mehr zeitbasiert `SERVO_ROT_LOOPS`/`SERVO_GELB_LOOPS`). BLAU-Sequenz letzte Phase: 360° dreht bis Endschalter statt 10 Loops fix. D1 bei BLAU = 0.85f (war 0.2/0.6).
+- **v14 (2026-04-20): 360°-Servo Brake-Delay nach Endschalter-Hit** — `SERVO360_BRAKE_LOOPS=15` (0.3s @ 50Hz). Servo bleibt während Delay aktiv (spinnt weiter), dann `disable()`. Gilt universell für Initial-Ausrichtung, CROSSING_STOP (4 Querbalken), SMALL_CROSSING_STOP (4 kleine Linien). Ziel: 360°-Servo hat Zeit, ~45° weiter zu drehen nach Endschalter-Trigger, bevor Stopp aktiv wird. Noch nicht getestet.
+- **Servo-Positionierung Präzision-Strategie (2026-04-20):** Anforderung ±4° Genauigkeit nach 45° Rotation ab Endschalter-Hit. Erste Taktik: **Timing-Kalibrierung** — messe wie lange Servo für 45° braucht, nutze diese Konstante. Fallback wenn nicht ausreichend: **Zweiter Endschalter auf PC_5** (frei, war vorher selbst Endschalter-Pin). Zweiter Schalter wird 45° nach erstem platziert → Hit löst sofortigen Stop aus.
 
 ## Projekt-Kontext
 - **Kurs:** ZHAW 2. Semester, Modul PM2
@@ -112,10 +113,12 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **ROT und GELB implementieren:** Roboter fährt vorwärts, dann volle Arm-Sequenz wie GRÜN/BLAU (D1 ausfahren → D2 senken → D2 hoch → D1 ein → 360° bis Endschalter). D2-Tiefe für ROT/GELB noch festlegen (Referenz: GRÜN=0.4f, BLAU=0.8f). Implementierung in `src/prototype02_v13.cpp` in CROSSING_STOP und SMALL_CROSSING_STOP (case 3 und case 4).
-2. **Gesamtprogramm durchgehend fahren:** 4 Querbalken + 4 kurze Linien + alle Servo-Aktionen in richtiger Reihenfolge.
+1. **v14 testen: 0.3s Brake-Delay validieren:** Aktiviere `PROTOTYPE_02_V14` in `test_config.h`, baue (`pio run`), flashe (`pio run --target upload`), fahre das Programm durch (ggf. mit `pio device monitor` zur Live-Überwachung). Beobachte: Dreht der 360°-Servo nach Endschalter-Hit noch ~45° weiter während der 0.3s Delay-Phase, oder stoppt er sofort? Dokumentiere das Ergebnis (Servo dreht weiter / stoppt sofort) und entscheide dann: Parameter anpassen oder in nächste Version gehen.
+2. **ROT und GELB mit Arm-Sequenz implementieren (falls v14 ok ist):** Vollständige Sequenz wie GRÜN/BLAU — D1 ausfahren → D2 senken → D2 hoch → D1 ein → 360° bis Endschalter. D2-Tiefe für ROT/GELB festlegen (Referenz: GRÜN=0.4f, BLAU=0.8f). In `prototype02_v14.cpp` Zeilen 610–620 und 772–782 (CROSSING_STOP/SMALL_CROSSING_STOP case 3/4).
 
 ## Offene Fragen
+- **360°-Servo Präzision nach Endschalter-Hit (2026-04-20):** Ziel ist ±4° Genauigkeit. Erste Strategie: **Timing-Kalibrierung testen** — Miss empirisch, wie lange es dauert bis Servo von Endschalter-Hit um 45° weiterdreht, nutze diese Zeit statt fester 0.3s Delay. Falls das nicht ±4° erreicht: **Zweiter Endschalter implementieren auf PC_5** (ist frei, war vorher selbst Endschalter-Pin). Dann: Nach Endschalter-Hit Servo laufen bis zweiter Schalter betätigt wird → sofort stopp.
+- **Dreht der 360°-Servo während der 0.3s Brake-Delay um ~45° weiter nach Endschalter-Hit?** (Neu, 2026-04-20) — Wenn ja, ist das gewünscht? Falls nein, eventuell Delay verkürzen. Muss physisch getestet werden.
 - **GRÜN D2-Tiefe 0.4f korrekt?** — Physisch noch nicht verifiziert ob das tatsächlich 10mm tiefer ist als BLAU (0.8f). Nach Test anpassen.
 - **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
 - **Was passiert bei FINAL_HALT** nach den 4 kleinen Linien — braucht es eine finale Aktion?
