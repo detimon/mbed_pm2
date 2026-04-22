@@ -683,6 +683,28 @@ void roboter_v20_task(DigitalOut& led)
             }
 
             // Phase 2: Servo feuern nach Lesephase
+            // ... (dein bestehender Code) ...
+
+            /*
+             * SERVO ACTUATION TIMELINE (Reverse Counter m_arm_retract_ctr)
+             * Starts at m_arm_retract_ctr = 165 or 108 depending on crossing.
+             * * | Counter | Action                                  |
+             * |---------|-----------------------------------------|
+             * | 140     | Servo 360 correct speed back to 45 deg  |
+             * | 137     | Stop 360 Servo                          |
+             * | 112     | Servo D2 fully down                     |
+             * | 108     | Jiggle Direction 1                      |
+             * | 101     | Stop Jiggle 1                           |
+             * | 82-68   | D1/D2 minor corrections                 |
+             * | 52      | Jiggle Direction 2                      |
+             * | 44      | Servo D2 Up                             |
+             * | 22      | Servo D1 retract completely             |
+             * | 7       | Disable D2                              |
+             * | 0       | Disable D1, Trigger 5-click 360 advance |
+             */
+            // Schiebe/Zieh + Rückzug + 5-Click (Balken 1/2/3) oder 90°-Kick (Balken 4)
+            if ((m_action_color == 5 || m_action_color == 7) && m_arm_retract_ctr > 0) {
+                // ... (hier steht dein bestehender Servo-Steuerungscode) ...
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 if (m_action_color == 0) m_action_color = m_color_fallback; // Fallback: Fahrt-Farbe
                 switch (m_action_color) {
