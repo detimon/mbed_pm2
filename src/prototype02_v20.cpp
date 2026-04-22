@@ -923,6 +923,22 @@ void roboter_v20_task(DigitalOut& led)
                 if (m_small_crossing_ctr == 60) g_servo_D2->enable(SERVO_D2_BLAU_DOWN);
                 if (m_small_crossing_ctr == 45) m_arm_retract_ctr = 108;
             }
+/*
+             * SMALL CROSSING SERVO TIMELINE
+             * * | Counter | Action                                  |
+             * |---------|-----------------------------------------|
+             * | 108     | Move forward                            |
+             * | 92      | Stop - Wait 0.8s                        |
+             * | 52      | Move backward                           |
+             * | 44      | Stop and raise D2                       |
+             * | 29      | Retract D1                              |
+             * | 14      | Disable D2                              |
+             * | 0       | Disable D1, rotate 90 deg               |
+             */
+            // Schiebe/Zieh + Rückzug + 90°-Drehung (GRÜN + BLAU) — kein Arm-Wiggle
+
+            if ((m_action_color == 5 || m_action_color == 7) && m_arm_retract_ctr > 0) {
+
             // Schiebe/Zieh + Rückzug + 90°-Drehung (GRÜN + BLAU) — kein Arm-Wiggle
             if ((m_action_color == 5 || m_action_color == 7) && m_arm_retract_ctr > 0) {
                 if (m_arm_retract_ctr == 108) g_servo->enable(0.52f);         // vorwärts 320ms
