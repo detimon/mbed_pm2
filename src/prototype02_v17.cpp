@@ -1,9 +1,9 @@
-// CargoSweep — PROTOTYPE_02_V16
+// CargoSweep — PROTOTYPE_02_V17
 #include "test_config.h"
 
-#ifdef PROTOTYPE_02_V16
+#ifdef PROTOTYPE_02_V17
 
-#include "prototype02_v16.h"
+#include "prototype02_v17.h"
 #include "Servo.h"
 #include "NeoPixel.h"
 
@@ -69,15 +69,16 @@ static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide 
 static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s total
 
 static const int   SERVO_1S_LOOPS         = 50;   // 1 s for 180° servo extend/retract phase
-static const float SERVO_D2_BLAU_DOWN     = 0.30f;   // D2 Tiefe für BLAU
-static const float SERVO_D2_GRUEN_DOWN    = 0.08f;   // D2 Tiefe für GRÜN
+static const float SERVO_D2_BLAU_DOWN     = 0.34f;   // D2 Tiefe für BLAU
+static const float SERVO_D2_GRUEN_DOWN    = 0.10f;   // D2 Tiefe für GRÜN
 static const float SERVO360_KICK_SPEED    = 0.55f;  // Anlauf-Geschwindigkeit (überwindet Haftreibung)
 static const int   SERVO360_KICK_LOOPS    = 8;      // 150 ms Kick, dann auf Zielgeschwindigkeit
 static const float SERVO360_ALIGN_SPEED   = 0.55f;  // CCW Zielgeschwindigkeit nach Kick
 static const int   SERVO360_ALIGN_LOOPS   = 250;    // max 5 s Ausrichtung (250 * 20ms)
 static const int   SERVO360_BRAKE_LOOPS   = 1;      // sofort bremsen bei Endschalter-Hit
-static const int   ROT_GELB_DRIVE_LOOPS  = 50;  // loops to drive ~120mm (tunable, ~1.0s at 50Hz)
+static const int   ROT_GELB_DRIVE_LOOPS  = 55;  // loops to drive ~120mm (erhöht um Bremsrampe zu kompensieren)
 static const int   ROT_GELB_ACCEL_LOOPS  = 10;  // ramp-up loops at start
+static const int   ROT_GELB_BRAKE_LOOPS  = 12;  // ramp-down loops at end
 
 static const float SENSOR_THRESHOLD  = 0.40f;  // v9-start: 0.5f
 
@@ -159,6 +160,7 @@ static int   m_color_pending        = 0;     // the action colour currently bein
 static int   m_arm_retract_ctr      = 0;     // post-servo arm retraction countdown (GRÜN/BLAU)
 static bool  m_rot_gelb_is_small    = false; // true = kam von SMALL_CROSSING_STOP
 static int   m_rot_gelb_color       = 0;     // 3=ROT (→ GRÜN-Logik), 4=GELB (→ BLAU-Logik)
+static int   m_color_fallback       = 0;     // Fahrt-Farbe als Fallback falls Stillstand UNKNOWN liest
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -202,7 +204,7 @@ static bool small_line_active()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v16_init(int loops_per_second)
+void roboter_v17_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -276,12 +278,13 @@ void roboter_v16_init(int loops_per_second)
     m_arm_retract_ctr      = 0;
     m_rot_gelb_is_small    = false;
     m_rot_gelb_color       = 0;
+    m_color_fallback       = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v16_task(DigitalOut& led)
+void roboter_v17_task(DigitalOut& led)
 {
     // --- Farbsensor ---
     m_current_color  = g_cs->getColor();
@@ -525,11 +528,27 @@ void roboter_v16_task(DigitalOut& led)
             g_M2->setVelocity(spd);
             m_approach_ctr++;
 
+            if (m_approach_ctr > ACCEL_LOOPS) {
+                int col_now    = g_cs->getColor();
+                bool is_action = (col_now == 3 || col_now == 4 || col_now == 5 || col_now == 7);
+                if (is_action && col_now == m_color_pending) {
+                    m_color_stable_ctr++;
+                } else if (is_action) {
+                    m_color_pending    = col_now;
+                    m_color_stable_ctr = 1;
+                    m_color_fallback   = col_now;
+                } else {
+                    m_color_pending    = 0;
+                    m_color_stable_ctr = 0;
+                }
+            }
+
             if (m_approach_ctr > ACCEL_LOOPS && wide_bar_active()) {
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_crossings_left--;
                 m_crossing_ctr     = CROSSING_STOP_LOOPS;
+                m_color_fallback   = 0;
                 m_action_color     = 0;
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
@@ -566,6 +585,7 @@ void roboter_v16_task(DigitalOut& led)
                     } else if (is_action) {
                         m_color_pending    = col_now;
                         m_color_stable_ctr = 1;
+                        m_color_fallback   = col_now;
                     } else {
                         m_color_pending    = 0;
                         m_color_stable_ctr = 0;
@@ -596,6 +616,7 @@ void roboter_v16_task(DigitalOut& led)
                 g_M2->setVelocity(0.0f);
                 m_crossings_left--;
                 m_crossing_ctr     = CROSSING_STOP_LOOPS;
+                m_color_fallback   = 0;
                 m_action_color     = 0;
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
@@ -632,6 +653,7 @@ void roboter_v16_task(DigitalOut& led)
 
             // Phase 2: Servo feuern nach Lesephase
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
+                if (m_action_color == 0) m_action_color = m_color_fallback; // Fallback: Fahrt-Farbe
                 switch (m_action_color) {
                     case 3:  break; // ROT  — kein Servo, danach 120mm weiterfahren
                     case 4:  break; // GELB — kein Servo, danach 120mm weiterfahren
@@ -657,8 +679,8 @@ void roboter_v16_task(DigitalOut& led)
                 if (m_arm_retract_ctr == 82)  g_servo_D1->setPulseWidth(0.97f);  // D1 minimal vor
                 if (m_arm_retract_ctr == 78)  g_servo_D1->setPulseWidth(0.95f);  // D1 zurück
                 if (m_arm_retract_ctr == 72) {
-                    if (m_action_color == 5) g_servo_D2->setPulseWidth(SERVO_D2_GRUEN_DOWN - 0.03f);
-                    if (m_action_color == 7) g_servo_D2->setPulseWidth(SERVO_D2_BLAU_DOWN  - 0.03f);
+                    if (m_action_color == 5) g_servo_D2->setPulseWidth(SERVO_D2_GRUEN_DOWN - 0.02f);
+                    if (m_action_color == 7) g_servo_D2->setPulseWidth(SERVO_D2_BLAU_DOWN  - 0.02f);
                 }
                 if (m_arm_retract_ctr == 68) {
                     if (m_action_color == 5) g_servo_D2->setPulseWidth(SERVO_D2_GRUEN_DOWN);
@@ -747,6 +769,7 @@ void roboter_v16_task(DigitalOut& led)
                     } else if (is_action) {
                         m_color_pending    = col_now;
                         m_color_stable_ctr = 1;
+                        m_color_fallback   = col_now;
                     } else {
                         m_color_pending    = 0;
                         m_color_stable_ctr = 0;
@@ -777,6 +800,7 @@ void roboter_v16_task(DigitalOut& led)
                 g_M2->setVelocity(0.0f);
                 m_small_crossings_left--;
                 m_small_crossing_ctr = SMALL_CROSSING_STOP_LOOPS;
+                m_color_fallback     = 0;
                 m_action_color       = 0;
                 m_color_stable_ctr   = 0;
                 m_color_pending      = 0;
@@ -811,6 +835,7 @@ void roboter_v16_task(DigitalOut& led)
 
             // Phase 2: Servo feuern nach Lesephase
             if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
+                if (m_action_color == 0) m_action_color = m_color_fallback; // Fallback: Fahrt-Farbe
                 switch (m_action_color) {
                     case 3:  break; // ROT  — kein Servo, danach 120mm weiterfahren
                     case 4:  break; // GELB — kein Servo, danach 120mm weiterfahren
@@ -887,9 +912,16 @@ void roboter_v16_task(DigitalOut& led)
         case STATE_ROT_GELB_DRIVE: {
             g_lf->setMaxWheelVelocity(MAX_SPEED);
             g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
-            float ramp = (m_approach_ctr < ROT_GELB_ACCEL_LOOPS)
-                             ? static_cast<float>(m_approach_ctr + 1) / static_cast<float>(ROT_GELB_ACCEL_LOOPS)
-                             : 1.0f;
+            int   loops_done = m_approach_ctr;
+            int   loops_left = ROT_GELB_DRIVE_LOOPS - loops_done;
+            float ramp;
+            if (loops_done < ROT_GELB_ACCEL_LOOPS) {
+                ramp = static_cast<float>(loops_done + 1) / static_cast<float>(ROT_GELB_ACCEL_LOOPS);
+            } else if (loops_left <= ROT_GELB_BRAKE_LOOPS) {
+                ramp = static_cast<float>(loops_left) / static_cast<float>(ROT_GELB_BRAKE_LOOPS);
+            } else {
+                ramp = 1.0f;
+            }
             g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * ramp;
             g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * ramp;
             g_M1->setVelocity(g_cmd_M1);
@@ -923,7 +955,7 @@ void roboter_v16_task(DigitalOut& led)
                 if (!m_rot_gelb_is_small) {  // Wiggle nur bei breiten Balken
                     if (m_arm_retract_ctr == 82) g_servo_D1->setPulseWidth(0.97f);
                     if (m_arm_retract_ctr == 78) g_servo_D1->setPulseWidth(0.95f);
-                    if (m_arm_retract_ctr == 72) g_servo_D2->setPulseWidth(d2_depth - 0.03f);
+                    if (m_arm_retract_ctr == 72) g_servo_D2->setPulseWidth(d2_depth - 0.02f);
                     if (m_arm_retract_ctr == 68) g_servo_D2->setPulseWidth(d2_depth);
                 }
                 if (m_arm_retract_ctr == 52) g_servo->enable(0.37f);
@@ -985,7 +1017,7 @@ void roboter_v16_task(DigitalOut& led)
 
 }
 
-void roboter_v16_reset(DigitalOut& led)
+void roboter_v17_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
@@ -1025,6 +1057,7 @@ void roboter_v16_reset(DigitalOut& led)
     m_arm_retract_ctr      = 0;
     m_rot_gelb_is_small    = false;
     m_rot_gelb_color       = 0;
+    m_color_fallback       = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     m_servo360_ctr = 0;
     g_servo->disable();
@@ -1034,7 +1067,7 @@ void roboter_v16_reset(DigitalOut& led)
     led                    = 0;
 }
 
-void roboter_v16_print()
+void roboter_v17_print()
 {
     const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
                     (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :
@@ -1084,4 +1117,4 @@ void roboter_v16_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // PROTOTYPE_02_V16
+#endif // PROTOTYPE_02_V17

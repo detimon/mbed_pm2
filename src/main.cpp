@@ -203,6 +203,34 @@
     #define TEST_RESET(led)   roboter_v16_reset(led)
     #define TEST_PRINT()      roboter_v16_print()
 
+#elif defined(PROTOTYPE_02_V17)
+    #include "prototype02_v17.h"
+    #define TEST_INIT(lps)    roboter_v17_init(lps)
+    #define TEST_TASK(led)    roboter_v17_task(led)
+    #define TEST_RESET(led)   roboter_v17_reset(led)
+    #define TEST_PRINT()      roboter_v17_print()
+
+#elif defined(PROTOTYPE_02_V18)
+    #include "prototype02_v18.h"
+    #define TEST_INIT(lps)    roboter_v18_init(lps)
+    #define TEST_TASK(led)    roboter_v18_task(led)
+    #define TEST_RESET(led)   roboter_v18_reset(led)
+    #define TEST_PRINT()      roboter_v18_print()
+
+#elif defined(PROTOTYPE_02_V19)
+    #include "prototype02_v19.h"
+    #define TEST_INIT(lps)    roboter_v19_init(lps)
+    #define TEST_TASK(led)    roboter_v19_task(led)
+    #define TEST_RESET(led)   roboter_v19_reset(led)
+    #define TEST_PRINT()      roboter_v19_print()
+
+#elif defined(PROTOTYPE_02_V20)
+    #include "prototype02_v20.h"
+    #define TEST_INIT(lps)    roboter_v20_init(lps)
+    #define TEST_TASK(led)    roboter_v20_task(led)
+    #define TEST_RESET(led)   roboter_v20_reset(led)
+    #define TEST_PRINT()      roboter_v20_print()
+
 #elif defined(TEST_DREHSERVO_90)
     #include "test_files/test_drehservo_90.h"
     #define TEST_INIT(lps)    drehservo_90_init(lps)

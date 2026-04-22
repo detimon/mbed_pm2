@@ -1,15 +1,14 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-21)
-- **Aktiv in test_config.h:** `TEST_SERVO_ALL` — muss auf `PROTOTYPE_02_V16` zurückgestellt werden
-- **test_servo_all.cpp:** D1 und 360° auskommentiert (nur D2-Test) — vor Haupttest wiederherstellen
-- **v16 voll funktionsfähig:** BLAU/GRÜN/ROT/GELB Arm-Sequenz, ROT/GELB fahren 120mm nach, dann Arm-Sequenz
-- **ROT/GELB STATE_ROT_GELB_PAUSE repariert (2026-04-21):** War dual-counter (m_pause_ctr + m_arm_retract_ctr), jetzt single-counter `arm_retract_ctr=138` (30 Setup + 108 Arm) — identisches Muster wie CROSSING_STOP
-- **D2 Kalibrierung in v16:** `calibratePulseMinMax(0.0314f, 0.1232f)` — voller physischer Bereich (war 0.050f/0.1050f)
-- **D2 Tiefen (2026-04-21):** `SERVO_D2_BLAU_DOWN=0.30f`, `SERVO_D2_GRUEN_DOWN=0.08f`
-- **D2 Retract-Timing repariert:** D2 disable bei counter 14 (0.6s nach 1.0f setzen), D1 retract bleibt bei counter 29 — verhindert vorzeitiges Disable bevor Servo oben ankommt
-- **Servo vertikal D2 (PC_6) KAPUTT:** Interner Kurzschluss — Signal-Kabel liegt ohmisch auf VCC/GND. Muss physisch ersetzt werden.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-22)
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V20` — exakte Kopie von v18 (nur umbenannt), funktioniert identisch
+- **v20 = v18 (bestätigt):** BLAU/GRÜN/ROT/GELB Arm-Sequenz läuft, 360° stoppt am Endschalter, Jiggle-Richtung noch falsch
+- **D2 Kalibrierung in v20:** `calibratePulseMinMax(0.0200f, 0.1310f)`, `SERVO_D2_BLAU_DOWN=0.34f`, `SERVO_D2_GRUEN_DOWN=0.13f`
+- **Servo vertikal D2 (PB_2) neu eingebaut** — physischer Ersatz erfolgt, Höhen noch nicht final kalibriert
+- **Bug 1 — AUSRICHTEN:** 360°-Servo-Ausrichtung vor Programmstart (STATE_BLIND) funktioniert noch nicht zuverlässig
+- **Bug 2 — Letzte Schmallinie:** Nach ROT/GELB an Schmallinie #3 hält Roboter an — Schmallinie #4 wird nicht erreicht/ausgeführt
+- **Jiggle-Richtung:** Noch falsch in v20 (von v18 übernommen) — noch nicht korrigiert
 
 ## Stack
 - Sprache: C++14
@@ -64,6 +63,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 | —   | PC_0      | Farbsensor – S3 |
 
 ## Aktive Entscheidungen
+- **v20 ist aktive Hauptversion** — exakte Kopie v18, test_config.h auf `PROTOTYPE_02_V20`
 - Claude Code Modell: `opus[1m]` in `~/.claude/settings.json` — bei Opus-Rate-Limit temporär auf `sonnet` wechseln (Opus-Sublimit ist unabhängig vom Gesamt-Limit)
 - `/popupssound` toggled Sound via Flag-Datei `C:\Users\alexa\.claude\sound_disabled` — alle drei Popup-Scripts prüfen dieses Flag
 - `/popups`-Befehl toggled Popups via Flag-Datei `C:\Users\alexa\.claude\popups_disabled` — kein settings.json-Edit nötig
@@ -111,12 +111,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Servo horizontal (D1, PC_8) ersetzen**, dann `test_config.h` auf `PROTOTYPE_02_V16` setzen und `test_servo_all.cpp` D1/360° wieder einkommentieren. Danach Vollprogramm flashen und alle 4 Farben (BLAU, GRÜN, ROT, GELB) an breiten und schmalen Balken testen.
+1. **AUSRICHTEN-Bug fixen in v20:** In STATE_BLIND startet 360°-Servo zur Ausrichtung (`SERVO360_KICK_SPEED=0.55f`, `SERVO360_ALIGN_LOOPS=250`) — debuggen warum er nicht zuverlässig am Endschalter stoppt. ISR-Flag `s_endstop_hit` und `m_servo360_brake_ctr`-Logik prüfen. Falls nötig: SERVO360_KICK_SPEED erhöhen oder SERVO360_ALIGN_LOOPS verlängern.
+2. **Letzte Schmallinie fixen:** Nach ROT/GELB an Schmallinie #3 (`m_small_crossings_left==1`) geht Roboter in FINAL_HALT statt weiterfahren — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen.
+3. **D2-Höhen kalibrieren:** `SERVO_D2_BLAU_DOWN=0.34f` und `SERVO_D2_GRUEN_DOWN=0.13f` mit physisch ersetztem Servo verifizieren und ggf. anpassen.
+4. **Jiggle-Richtung korrigieren:** v20 hat falsche Richtung (von v18 geerbt) — nach AUSRICHTEN-Fix testen und Richtung umkehren wenn nötig.
 
 ## Offene Fragen
+- **AUSRICHTEN-Bug:** Warum stoppt 360°-Servo in STATE_BLIND nicht zuverlässig am Endschalter? ISR-Timing oder Geschwindigkeitsproblem?
+- **Letzte Schmallinie (4.):** Exit-Bedingung in ROT_GELB_PAUSE bei `m_rot_gelb_is_small=true` und `m_small_crossings_left==1` — geht fälschlicherweise in FINAL_HALT?
 - **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
-- **Was passiert bei FINAL_HALT** nach den 4 kleinen Linien — braucht es eine finale Aktion?
-- **D2 Tiefen nach D1-Ersatz nochmals verifizieren** — neuer D1-Servo könnte leicht andere Mechanik haben, eventuell BLAU_DOWN/GRUEN_DOWN nachjustieren.
+- **D2 Tiefen nach physischem Ersatz verifizieren** — `BLAU_DOWN=0.34f`, `GRUEN_DOWN=0.13f` noch anzupassen.
 
 ## Session-Routine
 Am Ende jeder Session:

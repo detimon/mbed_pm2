@@ -19,7 +19,11 @@
 // #define PROTOTYPE_02_V13
 // #define PROTOTYPE_02_V14
 // #define PROTOTYPE_02_V15
-#define PROTOTYPE_02_V16
+// #define PROTOTYPE_02_V16
+// #define PROTOTYPE_02_V17
+// #define PROTOTYPE_02_V18
+// #define PROTOTYPE_02_V19
+#define PROTOTYPE_02_V20
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
 // #define TEST_COLOR_SENSOR
@@ -27,14 +31,14 @@
 
 // --- Hardware Tests ---
 // #define TEST_SERVO
-//#define TEST_SERVO_ALL
+// #define TEST_SERVO_ALL
 // #define TEST_SERVO_CALIB
 // #define TEST_IR
 // #define TEST_DC_MOTOR
 // #define TEST_DREHSERVO_90
 // #define TEST_ENDSCHALTER
-//#define TEST_NEOPIXEL
-//#define TEST_COLOR_NEOPIXEL
+// #define TEST_NEOPIXEL
+// #define TEST_COLOR_NEOPIXEL
 
 // --- Liniensensor Tests ---
 // #define TEST_LINE_FOLLOWER
