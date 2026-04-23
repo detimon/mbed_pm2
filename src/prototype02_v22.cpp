@@ -1,9 +1,9 @@
-// CargoSweep — PROTOTYPE_02_V21
+// CargoSweep — PROTOTYPE_02_V22
 #include "test_config.h"
 
-#ifdef PROTOTYPE_02_V21
+#ifdef PROTOTYPE_02_V22
 
-#include "prototype02_v21.h"
+#include "prototype02_v22.h"
 #include "Servo.h"
 #include "NeoPixel.h"
 
@@ -50,6 +50,7 @@ static const int   ACCEL_LOOPS          = 12;  // 0.24 s smooth accel at start o
 static const int   FOLLOW_ACCEL_LOOPS   = 5;   // 0.1 s micro-ramp for motor protection on line follow
 static const int   RESTART_ACCEL_LOOPS  = 50;  // 1.0 s straight drive with ramp, then line follower
 static const int   STOP_GUARD      = static_cast<int>(75 * SPEED_SCALE);   // [SPEED_SCALE] 1.5 s guard @ MAX_SPEED=1.0 — prevents immediate retrigger
+static const int   START_GUARD     = static_cast<int>(300 * SPEED_SCALE);  // [SPEED_SCALE] 6 s guard @ MAX_SPEED=1.0 — nur Anfangssequenz nach TURN_SPOT
 static const int   SLOWDOWN_LOOPS  = 13;    // 0.26 s ramp from 100% → SLOW_FACTOR when colour detected
 static const float SLOW_FACTOR     = 0.2f;  // target speed during approach (20% of current command)
 static const int   COLOR_READ_DELAY = 50;   // 1.0 s after restart before colour is polled again (avoids re-triggering on old card)
@@ -69,8 +70,8 @@ static const int   TOTAL_SMALL_CROSSINGS     = 4;   // 4 small lines after wide 
 static const int   SMALL_CROSSING_STOP_LOOPS = 100; // 2 s total
 
 static const int   SERVO_1S_LOOPS         = 50;   // 1 s for 180° servo extend/retract phase
-static const float SERVO_D2_BLAU_DOWN     = 0.40f;   // D2 Tiefe 0.37f für BLAU (ca. 4 mm weniger tief als 0.34)
-static const float SERVO_D2_GRUEN_DOWN    = 0.24f;   // D2 Tiefe 0.16f für GRÜN (ca. 4 mm weniger tief als 0.13)
+static const float SERVO_D2_BLAU_DOWN     = 0.38f;   // D2 Tiefe 0.37f für BLAU (ca. 4 mm weniger tief als 0.34)
+static const float SERVO_D2_GRUEN_DOWN    = 0.22f;   // D2 Tiefe 0.16f für GRÜN (ca. 4 mm weniger tief als 0.13)
 static const float SERVO_D2_PARTIAL_DOWN  = 0.85f;   // D2 Zwischenposition (vor 360°-Korrektur)
 static const float SERVO360_KICK_SPEED    = 0.55f;  // Anlauf-Geschwindigkeit (überwindet Haftreibung)
 static const int   SERVO360_KICK_LOOPS    = 8;      // 150 ms Kick, dann auf Zielgeschwindigkeit
@@ -177,11 +178,12 @@ static bool  m_rot_gelb_click_phase = false; // unused, kept for reset symmetry
 
 static bool all_sensors_active()
 {
+    int active = 0;
     for (int i = 0; i < 8; i++) {
-        if (g_lf->getAvgBit(i) < SENSOR_THRESHOLD)
-            return false;
+        if (g_lf->getAvgBit(i) >= SENSOR_THRESHOLD)
+            active++;
     }
-    return true;
+    return active >= 7; // 7 von 8 reichen (toleranter gegen schrägen Einlauf)
 }
 
 static bool center_sensors_active()
@@ -213,7 +215,7 @@ static bool small_line_active()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void roboter_v21_init(int loops_per_second)
+void roboter_v22_init(int loops_per_second)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -293,7 +295,7 @@ void roboter_v21_init(int loops_per_second)
     g_M2->setVelocity(0.0f);
 }
 
-void roboter_v21_task(DigitalOut& led)
+void roboter_v22_task(DigitalOut& led)
 {
     // --- Farbsensor ---
     m_current_color  = g_cs->getColor();
@@ -404,7 +406,7 @@ void roboter_v21_task(DigitalOut& led)
                 g_servo->enable(SERVO360_KICK_SPEED);
                 m_servo360_ctr      = SERVO360_ALIGN_LOOPS;
                 m_servo360_kick_ctr = SERVO360_KICK_LOOPS;
-                m_click_target      = 3; // Endschalter 2x überfahren, beim 3. Hit stoppen
+                m_click_target      = 5; // Endschalter 4x überfahren, beim 5. Hit stoppen
                 m_click_cnt         = 0;
                 m_click_coast_ctr   = 0;
                 s_endstop_hit       = false; // altes Flag löschen
@@ -435,7 +437,7 @@ void roboter_v21_task(DigitalOut& led)
             g_M2->setVelocity(VEL_SIGN *  TURN_SPEED);
             if (center_sensors_active()) {
                 g_lf->setRotationalVelocityControllerGains(KP_FOLLOW, KP_NL_FOLLOW);
-                m_guard_ctr = STOP_GUARD;
+                m_guard_ctr = START_GUARD; // 6 s Sperre — verhindert Mehrfach-Triggerung auf Startbalken
                 m_state     = STATE_FOLLOW;
             }
             break;
@@ -1044,7 +1046,7 @@ void roboter_v21_task(DigitalOut& led)
                     if (m_arm_retract_ctr == 68) g_servo_D2->setPulseWidth(d2_depth);
                 }
                 if (m_arm_retract_ctr == 52) g_servo->enable(jiggle_rev ? 0.52f : 0.37f); // Jiggle Richtung 2
-                if (m_arm_retract_ctr == 45) {                                 // stop + D2 hoch — 7 Loops Richtung 2
+                if (m_arm_retract_ctr == 40) {                                 // stop + D2 hoch — 12 Loops Richtung 2
                     g_servo->enable(0.5f);
                     g_servo_D2->setPulseWidth(1.0f);
                 }
@@ -1113,7 +1115,7 @@ void roboter_v21_task(DigitalOut& led)
 
 }
 
-void roboter_v21_reset(DigitalOut& led)
+void roboter_v22_reset(DigitalOut& led)
 {
     *g_en            = 0;
     g_M1->setVelocity(0.0f);
@@ -1167,7 +1169,7 @@ void roboter_v21_reset(DigitalOut& led)
     led                    = 0;
 }
 
-void roboter_v21_print()
+void roboter_v22_print()
 {
     const char* s = (m_state == STATE_BLIND)               ? "BLIND       " :
                     (m_state == STATE_STRAIGHT)            ? "STRAIGHT    " :

@@ -1,15 +1,17 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-22, Session 2)
-- **Aktiv in test_config.h:** `PROTOTYPE_02_V21` — Build grün, Flash 19.2 %, RAM 21.3 %
-- **STATE_BLIND 3×Endschalter umgesetzt** ([src/prototype02_v21.cpp:405-411]): `m_click_target=3`, `m_click_cnt=0`, `m_click_coast_ctr=0` vor `STATE_STRAIGHT`-Transition. Nutzt bestehende Click-Counting-ISR, beim 3. Hit → 7-Loop Coast → Brems → `disable()`
-- **Zwei Latent-Bugs aus v20 gefixt (waren nie kompiliert worden):** Platzhalter-`if {` mit fehlender `}` in STATE_CROSSING_STOP (alt Z.708-710) und STATE_SMALL_CROSSING_STOP (alt Z.940-942) — haben die Task-Funktion unbalanciert gelassen
-- **D2-Ablagehöhe ~4 mm weniger tief:** `SERVO_D2_BLAU_DOWN` 0.34 → **0.37**, `SERVO_D2_GRUEN_DOWN` 0.13 → **0.16** (Faustregel: +0.01 Puls ≈ 1.3 mm)
-- **ROT-Jiggle-Flip in ROT_GELB_PAUSE** ([src/prototype02_v21.cpp:1040]): `jiggle_rev = rev ^ (m_rot_gelb_color == 3 && !m_rot_gelb_is_small)` — flippt beide Jiggles bei ROT nur an **breiten Balken**, nicht an Schmallinien
-- **Jiggle 2 in CROSSING_STOP auf Doppelimpuls geändert** ([src/prototype02_v21.cpp:750-755]): ein 7-Loop Impuls Richtung 1, dann **zwei** 6-Loop Impulse in Gegenrichtung (6+3+6) statt 11-Loop Einzelimpuls. Gilt nur für GRÜN/BLAU an breiten Balken; Schmallinien unverändert (kein Jiggle), ROT_GELB_PAUSE unverändert (7+7)
-- **Finale Drehung an letztem breitem Balken geändert:** Zuvor 90°-Kick (1 Hit), jetzt **5-Click** wie an Balken 1-3. Gilt sowohl in CROSSING_STOP ([src/prototype02_v21.cpp:764-771]) als auch in ROT_GELB_PAUSE ([src/prototype02_v21.cpp:1067]: `do_5click = !m_rot_gelb_is_small`). Schmallinien weiterhin 90°
-- **Noch nicht gefahren:** alle Änderungen compiliert aber nicht auf dem Roboter validiert
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-23)
+- **v22 erstellt** als Kopie von v21 ([src/prototype02_v22.cpp](src/prototype02_v22.cpp), [src/prototype02_v22.h](src/prototype02_v22.h)); main.cpp + test_config.h entsprechend erweitert. v21 bleibt als Backup unverändert
+- **D2-Höhen auf dem Roboter validiert und nachjustiert** (2026-04-23): `SERVO_D2_BLAU_DOWN = 0.38f`, `SERVO_D2_GRUEN_DOWN = 0.22f` in v22 ([src/prototype02_v22.cpp:72-73](src/prototype02_v22.cpp#L72-L73)) — getestet, passen
+- **GRÜN/GELB Hue-Grenze gefixt** ([lib/ColorSensor/ColorSensor.cpp:292-293](lib/ColorSensor/ColorSensor.cpp#L292-L293)): `HUE_YELLOW_MAX = 38.5f` (vorher 52.0) — GRÜN wurde als GELB erkannt, neue Grenze basiert auf Messung GELB max 38° / GRÜN min 39°. Getestet, funktioniert
+- **Aus v21/Session 2 (2026-04-22) übernommen und immer noch aktiv:**
+  - STATE_BLIND 3×Endschalter ([src/prototype02_v22.cpp:405-411](src/prototype02_v22.cpp#L405-L411))
+  - Zwei Latent-Bugs aus v20 gefixt (Platzhalter-`if {` in CROSSING_STOP + SMALL_CROSSING_STOP)
+  - ROT-Jiggle-Flip in ROT_GELB_PAUSE nur bei breiten Balken
+  - Doppelimpuls-Jiggle (6+3+6) in CROSSING_STOP
+  - 5-Click auch am letzten breiten Balken
+- **Noch offen (Hauptproblem):** Jiggle muss für ALLE Farben funktionieren — evt. D1 mit-jiggeln
 
 ## Stack
 - Sprache: C++14
@@ -122,11 +124,9 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 1. **Flash v21 und volle Runde fahren (Golden-Path-Test):** `pio run --target upload`, dann beobachten: (a) Initial-Ausrichtung stoppt beim 3. Endschalter-Hit statt beim 1., (b) D2-Ablage 4 mm flacher als vorher sichtbar, (c) an Balken 4 macht das Tablett 5-Click statt 90°, (d) Jiggle an breiten Balken: ein kurzer Puls + zwei Gegenpulse, (e) ROT vs GELB Jiggle-Richtung: an breiten Balken gegensätzlich, an Schmallinie identisch. Log: welche Farbe → welche Pulse-Richtung.
 
    **Reliability-Issues (aus Testrunde offen):**
-   - **D2-Höhe etwas runtersetzen:**
-     - `SERVO_D2_BLAU_DOWN  = 0.43f` → **0.41f**
-     - `SERVO_D2_GRUEN_DOWN = 0.27f` → **0.25f**
    - **!!! Hauptproblem !!! Jiggle muss für ALLE Farben funktionieren** (evt. D1 mit-jiggeln)
-   - **Hue-Wert GRÜN kalibrieren** — wird immer wieder als GELB erkannt (Grenze GELB/GRÜN in `lib/ColorSensor/ColorSensor.cpp`, aktuell bei ~52°)
+   - ~~D2-Höhe runtersetzen~~ ✅ gefixt 2026-04-23: BLAU 0.38, GRÜN 0.22
+   - ~~Hue-Wert GRÜN kalibrieren~~ ✅ gefixt 2026-04-23: `HUE_YELLOW_MAX = 38.5f`
 2. **Falls Initial-Ausrichtung zu weit dreht:** `SERVO360_CLICK_EXTRA_LOOPS=7` ist Nachlauf nach 3. Hit — ggf. separaten `SERVO360_ALIGN_EXTRA_LOOPS=0` einbauen.
 3. **Letzte Schmallinie (Bug 2):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlich in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
 4. **Doppelimpuls-Timing tunen:** 6+3+6 Loops sind Erstwert, ggf. Pause zwischen den zwei Gegenpulsen verlängern wenn Päckchen nicht sauber rutscht.

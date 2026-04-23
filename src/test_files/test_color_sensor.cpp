@@ -16,7 +16,7 @@
 #define ANSI_ERASE   "\033[K"        // erase to end of line
 
 #define DISPLAY_LINES 8              // number of lines printed — must stay in sync with color_sensor_print()
-#define PRINT_EVERY_N 12             // print every ~240 ms at 20 ms task period
+#define PRINT_EVERY_N 25             // print every ~240 ms at 20 ms task period
 
 static ColorSensor* mp_sensor         = nullptr;
 static float        m_color_raw_Hz[4] = {0.0f, 0.0f, 0.0f, 0.0f};

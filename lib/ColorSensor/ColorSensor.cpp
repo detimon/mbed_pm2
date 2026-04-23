@@ -289,8 +289,8 @@ int ColorSensor::getColor()
     const float HUE_BLUE_MAX_LOW  =   7.0f;  // 0°–7°     = BLAU (wrap-Bereich)
     const float HUE_RED_MAX       =  20.0f;  // 7°–20°    = ROT
     const float HUE_WHITE_MAX     =  28.0f;  // 20°–28°   = UNKNOWN (WHITE ≈30° fällt jetzt in GELB, Sättigungsfilter schützt)
-    const float HUE_YELLOW_MAX    =  52.0f;  // 28°–52°   = GELB (9° Puffer unter gemessenem Min ≈37°)
-    const float HUE_GREEN_MAX     =  80.0f;  // 50°–80°   = GRÜN
+    const float HUE_YELLOW_MAX    =  38.5f;  // 28°–38°   = GELB (neu 2026-04-23: harte Grenze GELB max 38°)
+    const float HUE_GREEN_MAX     =  80.0f;  // 39°–80°   = GRÜN (neu 2026-04-23: startet ab min 39°)
     const float HUE_BLUE_MIN_HIGH = 348.0f;  // 348°–360° = BLAU (wrap-Bereich, erweitert)
 
     const int STABLE_COUNT = 1;
