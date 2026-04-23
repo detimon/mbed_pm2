@@ -1,17 +1,19 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-23)
-- **v22 erstellt** als Kopie von v21 ([src/prototype02_v22.cpp](src/prototype02_v22.cpp), [src/prototype02_v22.h](src/prototype02_v22.h)); main.cpp + test_config.h entsprechend erweitert. v21 bleibt als Backup unverändert
-- **D2-Höhen auf dem Roboter validiert und nachjustiert** (2026-04-23): `SERVO_D2_BLAU_DOWN = 0.38f`, `SERVO_D2_GRUEN_DOWN = 0.22f` in v22 ([src/prototype02_v22.cpp:72-73](src/prototype02_v22.cpp#L72-L73)) — getestet, passen
-- **GRÜN/GELB Hue-Grenze gefixt** ([lib/ColorSensor/ColorSensor.cpp:292-293](lib/ColorSensor/ColorSensor.cpp#L292-L293)): `HUE_YELLOW_MAX = 38.5f` (vorher 52.0) — GRÜN wurde als GELB erkannt, neue Grenze basiert auf Messung GELB max 38° / GRÜN min 39°. Getestet, funktioniert
-- **Aus v21/Session 2 (2026-04-22) übernommen und immer noch aktiv:**
-  - STATE_BLIND 3×Endschalter ([src/prototype02_v22.cpp:405-411](src/prototype02_v22.cpp#L405-L411))
-  - Zwei Latent-Bugs aus v20 gefixt (Platzhalter-`if {` in CROSSING_STOP + SMALL_CROSSING_STOP)
-  - ROT-Jiggle-Flip in ROT_GELB_PAUSE nur bei breiten Balken
-  - Doppelimpuls-Jiggle (6+3+6) in CROSSING_STOP
-  - 5-Click auch am letzten breiten Balken
-- **Noch offen (Hauptproblem):** Jiggle muss für ALLE Farben funktionieren — evt. D1 mit-jiggeln
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-23, Session 2)
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V23` — Build grün, RAM 21.3 %, Flash 19.2 %
+- **v23 erstellt** als Kopie von v22 ([src/prototype02_v23.cpp](src/prototype02_v23.cpp), [src/prototype02_v23.h](src/prototype02_v23.h)) — v22 bleibt als Backup unverändert
+- **Switch-Bouncing-Fix für 360°-Endschalter** ([src/prototype02_v23.cpp:174-175, 346-384](src/prototype02_v23.cpp#L346-L384)): neue Statics `m_servo360_wait_release` + `m_servo360_release_ctr`. Nach jedem gezählten Click muss der Pin 3 Loops lang wieder `read()==1` liefern, bevor der nächste Click akzeptiert wird. Verwirft Geister-Klicks aus Prellen
+- **Intro-Sequenz: harte PID-Gains in FOLLOW_1S** ([src/prototype02_v23.cpp:476](src/prototype02_v23.cpp#L476)): beim Übergang STATE_FOLLOW → STATE_FOLLOW_1S wird `setRotationalVelocityControllerGains(KP, KP_NL)` aufgerufen (vorher blieben die weichen KP_FOLLOW-Gains aktiv)
+- **Intro-Sequenz: symmetrische Bremsrampe** ([src/prototype02_v23.cpp:494](src/prototype02_v23.cpp#L494)): `m_brake_start_M1/M2 = (g_cmd_M1 + g_cmd_M2) / 2` statt individueller Motor-Commands — Roboter bremst synchron statt in der Kurve
+- **Intro-Sequenz: halbe Fahrgeschwindigkeit in FOLLOW_1S** ([src/prototype02_v23.cpp:488-489](src/prototype02_v23.cpp#L488-L489)): `* 0.5f` auf Left/Right-Wheel-Velocity → mehr Zeit für PID-Winkel-Ausrichtung vor dem Bremsen
+- **STATE_BLIND Initial-Ausrichtung: 5 Clicks statt 3** ([src/prototype02_v23.cpp:411](src/prototype02_v23.cpp#L411)): `m_click_target = 5` — Servo dreht 4× über Endschalter, stoppt beim 5. Hit
+- **Neuer `START_GUARD` = 300 Loops (6 s)** ([src/prototype02_v23.cpp:53](src/prototype02_v23.cpp#L53)) — nur für TURN_SPOT → FOLLOW-Übergang. `STOP_GUARD` bleibt bei 75 Loops (1.5 s) für alle anderen States
+- **`all_sensors_active()` toleranter** ([src/prototype02_v23.cpp:179-187](src/prototype02_v23.cpp#L179-L187)): 7 von 8 Sensoren reichen (vorher 8) — toleranter gegen schrägen Einlauf
+- **Jiggle 2 in ROT_GELB_PAUSE auf 12 Loops verlängert** ([src/prototype02_v23.cpp:1048-1052](src/prototype02_v23.cpp#L1048-L1052)): Counter 52 → 40 statt 52 → 45 (vorher 7 Loops, jetzt 12). Gilt für ROT + GELB an Balken + Schmallinien
+- **Übernommen aus v22/v21** (alles weiter aktiv): D2-Höhen (BLAU 0.38, GRÜN 0.22), HUE_YELLOW_MAX 38.5°, Doppelimpuls-Jiggle in CROSSING_STOP, 5-Click auch am letzten breiten Balken, ROT-Jiggle-Flip nur bei breiten Balken
+- **Noch nicht geflasht:** alle v23-Änderungen compiliert aber nicht auf dem Roboter validiert. Jiggle-Hauptproblem (für alle Farben zuverlässig) weiterhin offen
 
 ## Stack
 - Sprache: C++14
@@ -114,6 +116,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - v11 (2026-04-19): ROT + GELB stoppen jetzt ebenfalls am Endschalter (nicht mehr zeitbasiert `SERVO_ROT_LOOPS`/`SERVO_GELB_LOOPS`). BLAU-Sequenz letzte Phase: 360° dreht bis Endschalter statt 10 Loops fix. D1 bei BLAU = 0.85f (war 0.2/0.6).
 - **v14 (2026-04-20): 360°-Servo Brake-Delay nach Endschalter-Hit** — `SERVO360_ALIGN_SPEED=0.52f`, `SERVO360_BRAKE_LOOPS=0` (sofort stoppen). Servo dreht mit konstanter Geschwindigkeit 0.52 und stoppt beim Endschalter-Hit sofort. Gilt universell für Initial-Ausrichtung, CROSSING_STOP (4 Querbalken), SMALL_CROSSING_STOP (4 kleine Linien). Noch nicht getestet.
 - **Servo-Positionierung Präzision-Strategie (2026-04-20):** Anforderung ±4° Genauigkeit nach 45° Rotation ab Endschalter-Hit. Erste Taktik: **Timing-Kalibrierung** — messe wie lange Servo für 45° braucht, nutze diese Konstante. Fallback wenn nicht ausreichend: **Zweiter Endschalter auf PC_5** (frei, war vorher selbst Endschalter-Pin). Zweiter Schalter wird 45° nach erstem platziert → Hit löst sofortigen Stop aus.
+- **v23 ist aktive Hauptversion** (2026-04-23 Session 2) — Kopie von v22. v22 bleibt als Backup unverändert, v21 ebenfalls
+- **v23 (2026-04-23 S2): Wait-for-Release-Entprellung für 360°-Endschalter-Click** — neue Statics `m_servo360_wait_release` + `m_servo360_release_ctr`. Nach jedem akzeptierten Click muss Pin 3 Loops lang `read()==1` liefern, sonst werden Prell-Impulse als Geister-Clicks gezählt. Brems-/Stopp-Logik unverändert
+- **v23 (2026-04-23 S2): Intro-Sequenz PID-Verbesserungen** — (a) harte `setRotationalVelocityControllerGains(KP, KP_NL)` beim Übergang FOLLOW → FOLLOW_1S (vorher blieben weiche KP_FOLLOW aktiv), (b) Bremsrampe mit Durchschnitt `(M1+M2)/2` statt individuellen Motor-Commands → symmetrisches Bremsen, (c) Fahrgeschwindigkeit in FOLLOW_1S halbiert (`* 0.5f`) für mehr PID-Ausrichtungszeit
+- **v23 (2026-04-23 S2): STATE_BLIND Initial-Ausrichtung auf 5 Clicks** (vorher 3) — Servo überfährt Endschalter 4×, stoppt beim 5. Hit
+- **v23 (2026-04-23 S2): Zwei Guard-Konstanten statt einer** — `START_GUARD=300` (6 s, nur TURN_SPOT→FOLLOW), `STOP_GUARD=75` (1.5 s, zwischen Balken in REAL/SMALL_FOLLOW). Vorher teilten sich beide Übergänge den gleichen `STOP_GUARD`
+- **v23 (2026-04-23 S2): `all_sensors_active()` auf 7/8 Sensoren gelockert** — toleranter gegen schrägen Einlauf, gilt in STATE_BLIND und STATE_FOLLOW
+- **v23 (2026-04-23 S2): Jiggle 2 in ROT_GELB_PAUSE auf 12 Loops** (vorher 7) — Counter 52 → 40 statt 52 → 45, D2 geht synchron mit Stopp hoch. Gilt ROT + GELB an allen Positionen
+- **v23 (2026-04-23 S2): Semantik der Zählweise** — "5 Clicks" = 5 Endschalter-Hits (nach Entprellung). An breiten Balken dreht das Tablett 5 Clicks weiter (inkl. letztem), an Schmallinien 1×90°-Kick
 
 ## Projekt-Kontext
 - **Kurs:** ZHAW 2. Semester, Modul PM2
@@ -121,21 +131,20 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Flash v21 und volle Runde fahren (Golden-Path-Test):** `pio run --target upload`, dann beobachten: (a) Initial-Ausrichtung stoppt beim 3. Endschalter-Hit statt beim 1., (b) D2-Ablage 4 mm flacher als vorher sichtbar, (c) an Balken 4 macht das Tablett 5-Click statt 90°, (d) Jiggle an breiten Balken: ein kurzer Puls + zwei Gegenpulse, (e) ROT vs GELB Jiggle-Richtung: an breiten Balken gegensätzlich, an Schmallinie identisch. Log: welche Farbe → welche Pulse-Richtung.
+1. **v23 flashen und Intro-Sequenz beobachten:** `pio run --target upload`, dann volle Runde fahren. Konkrete Checks: (a) Initial-Ausrichtung stoppt präzise beim 5. Endschalter-Hit (Switch-Bouncing-Fix aktiv), (b) STATE_FOLLOW → FOLLOW_1S: Roboter fährt in FOLLOW_1S halb so schnell und richtet sich aggressiv gerade aus (harte KP-Gains), (c) Bremsung am Startbalken: Roboter steht nach BRAKE gerade, nicht mehr schräg, (d) START_GUARD 6 s verhindert Überfahrt des ersten Balkens. Falls weiter schräg oder Klicks fehlen → Parameter im nächsten Schritt tunen.
 
-   **Reliability-Issues (aus Testrunde offen):**
+   **Weiterhin offen aus Testrunde:**
    - **!!! Hauptproblem !!! Jiggle muss für ALLE Farben funktionieren** (evt. D1 mit-jiggeln)
-   - ~~D2-Höhe runtersetzen~~ ✅ gefixt 2026-04-23: BLAU 0.38, GRÜN 0.22
-   - ~~Hue-Wert GRÜN kalibrieren~~ ✅ gefixt 2026-04-23: `HUE_YELLOW_MAX = 38.5f`
-2. **Falls Initial-Ausrichtung zu weit dreht:** `SERVO360_CLICK_EXTRA_LOOPS=7` ist Nachlauf nach 3. Hit — ggf. separaten `SERVO360_ALIGN_EXTRA_LOOPS=0` einbauen.
-3. **Letzte Schmallinie (Bug 2):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlich in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
-4. **Doppelimpuls-Timing tunen:** 6+3+6 Loops sind Erstwert, ggf. Pause zwischen den zwei Gegenpulsen verlängern wenn Päckchen nicht sauber rutscht.
+2. **Falls Initial-Ausrichtung trotz 5-Click zu ungenau:** Wait-for-Release-Schwelle (aktuell 3 Loops) in [src/prototype02_v23.cpp:354](src/prototype02_v23.cpp#L354) auf 5 hochsetzen, oder `SERVO360_CLICK_EXTRA_LOOPS=7` reduzieren.
+3. **Falls FOLLOW_1S Slow-Motion zu langsam:** `0.5f`-Multiplikator in [src/prototype02_v23.cpp:488-489](src/prototype02_v23.cpp#L488-L489) auf 0.7f anheben.
+4. **Letzte Schmallinie (Bug 2 aus v22):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlich in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
 
 ## Offene Fragen
-- **Kalibrierungs-Drift:** Code nutzt `calibratePulseMinMax(0.050, 0.1050)`, echte Kalibrierung ist aber `(0.0303, 0.1223)` — soll umgestellt werden, oder reicht Click-Counting?
-- **Coast-Phase bei Initial-Ausrichtung:** `SERVO360_CLICK_EXTRA_LOOPS=7` (140 ms Nachlauf) — wirkt sich das bei 3×Hit schädlich aus? Ggf. separaten `SERVO360_ALIGN_EXTRA_LOOPS=0` einbauen.
-- **D2-Höhe +0.03 Puls** entspricht nur geschätzt ~4 mm — Hebelarm-Annahme ~10 cm. Nach erstem Flash physikalisch verifizieren.
-- **Letzter breiter Balken mit 5-Click** — reicht `SERVO360_ALIGN_LOOPS` als Timeout, damit alle 5 Clicks erreicht werden? Falls 5. Hit nach Timeout liegt → ALIGN_LOOPS erhöhen.
+- **Wait-for-Release-Schwelle:** 3 Loops (60 ms) — reicht das gegen längeres Prellen? Falls weiter Geister-Clicks → auf 5 erhöhen.
+- **SERVO360_ALIGN_LOOPS als Timeout bei 5-Click Initial-Ausrichtung:** Reichen 250 Loops (5 s) für 5 Clicks inkl. Release-Wait? Ggf. auf 350 hochsetzen.
+- **START_GUARD 6 s:** Falls Roboter beim Startbalken doch zweimal triggert → auf 8 s erhöhen. Falls er am ersten echten Balken verpasst wegen zu langer Sperre → auf 4 s senken.
+- **FOLLOW_1S 0.5f-Multiplikator:** Reicht halbe Geschwindigkeit für saubere Ausrichtung, oder wird sie zu langsam und overshootet der PID?
+- **Kalibrierungs-Drift:** Code nutzt `calibratePulseMinMax(0.050, 0.1050)`, echte Kalibrierung ist aber `(0.0303, 0.1223)` — mit Wait-for-Release sollte Click-Counting jetzt robust sein, Umstellung nicht mehr dringend.
 - **Letzte Schmallinie (4.):** Exit-Bedingung in ROT_GELB_PAUSE bei `m_rot_gelb_is_small=true` und `m_small_crossings_left==1` — geht fälschlicherweise in FINAL_HALT?
 - **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
 
