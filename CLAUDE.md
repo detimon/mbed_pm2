@@ -1,14 +1,15 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-22)
-- **Aktiv in test_config.h:** `PROTOTYPE_02_V20` — exakte Kopie von v18 (nur umbenannt), funktioniert identisch
-- **v20 = v18 (bestätigt):** BLAU/GRÜN/ROT/GELB Arm-Sequenz läuft, 360° stoppt am Endschalter, Jiggle-Richtung noch falsch
-- **D2 Kalibrierung in v20:** `calibratePulseMinMax(0.0200f, 0.1310f)`, `SERVO_D2_BLAU_DOWN=0.34f`, `SERVO_D2_GRUEN_DOWN=0.13f`
-- **Servo vertikal D2 (PB_2) neu eingebaut** — physischer Ersatz erfolgt, Höhen noch nicht final kalibriert
-- **Bug 1 — AUSRICHTEN:** 360°-Servo-Ausrichtung vor Programmstart (STATE_BLIND) funktioniert noch nicht zuverlässig
-- **Bug 2 — Letzte Schmallinie:** Nach ROT/GELB an Schmallinie #3 hält Roboter an — Schmallinie #4 wird nicht erreicht/ausgeführt
-- **Jiggle-Richtung:** Noch falsch in v20 (von v18 übernommen) — noch nicht korrigiert
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-22, Session 2)
+- **Aktiv in test_config.h:** `PROTOTYPE_02_V21` — Build grün, Flash 19.2 %, RAM 21.3 %
+- **STATE_BLIND 3×Endschalter umgesetzt** ([src/prototype02_v21.cpp:405-411]): `m_click_target=3`, `m_click_cnt=0`, `m_click_coast_ctr=0` vor `STATE_STRAIGHT`-Transition. Nutzt bestehende Click-Counting-ISR, beim 3. Hit → 7-Loop Coast → Brems → `disable()`
+- **Zwei Latent-Bugs aus v20 gefixt (waren nie kompiliert worden):** Platzhalter-`if {` mit fehlender `}` in STATE_CROSSING_STOP (alt Z.708-710) und STATE_SMALL_CROSSING_STOP (alt Z.940-942) — haben die Task-Funktion unbalanciert gelassen
+- **D2-Ablagehöhe ~4 mm weniger tief:** `SERVO_D2_BLAU_DOWN` 0.34 → **0.37**, `SERVO_D2_GRUEN_DOWN` 0.13 → **0.16** (Faustregel: +0.01 Puls ≈ 1.3 mm)
+- **ROT-Jiggle-Flip in ROT_GELB_PAUSE** ([src/prototype02_v21.cpp:1040]): `jiggle_rev = rev ^ (m_rot_gelb_color == 3 && !m_rot_gelb_is_small)` — flippt beide Jiggles bei ROT nur an **breiten Balken**, nicht an Schmallinien
+- **Jiggle 2 in CROSSING_STOP auf Doppelimpuls geändert** ([src/prototype02_v21.cpp:750-755]): ein 7-Loop Impuls Richtung 1, dann **zwei** 6-Loop Impulse in Gegenrichtung (6+3+6) statt 11-Loop Einzelimpuls. Gilt nur für GRÜN/BLAU an breiten Balken; Schmallinien unverändert (kein Jiggle), ROT_GELB_PAUSE unverändert (7+7)
+- **Finale Drehung an letztem breitem Balken geändert:** Zuvor 90°-Kick (1 Hit), jetzt **5-Click** wie an Balken 1-3. Gilt sowohl in CROSSING_STOP ([src/prototype02_v21.cpp:764-771]) als auch in ROT_GELB_PAUSE ([src/prototype02_v21.cpp:1067]: `do_5click = !m_rot_gelb_is_small`). Schmallinien weiterhin 90°
+- **Noch nicht gefahren:** alle Änderungen compiliert aber nicht auf dem Roboter validiert
 
 ## Stack
 - Sprache: C++14
@@ -63,7 +64,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 | —   | PC_0      | Farbsensor – S3 |
 
 ## Aktive Entscheidungen
-- **v20 ist aktive Hauptversion** — exakte Kopie v18, test_config.h auf `PROTOTYPE_02_V20`
+- **v21 ist aktive Hauptversion** (2026-04-22) — Kopie v20 als neuer Arbeits-Zweig, test_config.h auf `PROTOTYPE_02_V21`. v20 bleibt als Backup, wird nicht mehr editiert
+- v21 (2026-04-22): `SMALL_FOLLOW_START_GUARD` Basis 706 → 781 (+1.5 s Blind-Sperre nach 4. Querbalken gegen Farb-/Balken-Trigger in der Kurve)
+- v21 (2026-04-22 Session 2): STATE_BLIND setzt `m_click_target=3` → 3× Endschalter-Überfahrt bei Initial-Ausrichtung (nutzt bestehende Click-Counting-ISR)
+- v21 (2026-04-22 Session 2): D2-Ablagetiefen ~4 mm flacher — `SERVO_D2_BLAU_DOWN=0.37f`, `SERVO_D2_GRUEN_DOWN=0.16f`. Faustregel: +0.01 Puls ≈ 1.3 mm
+- v21 (2026-04-22 Session 2): ROT-Jiggle in ROT_GELB_PAUSE flippt nur an breiten Balken — `jiggle_rev = rev ^ (m_rot_gelb_color == 3 && !m_rot_gelb_is_small)`. An Schmallinien bleibt Standard-Richtung
+- v21 (2026-04-22 Session 2): CROSSING_STOP Jiggle 2 als **Doppelimpuls** (6+3+6 Loops) statt 11-Loop Einzelimpuls — nur GRÜN/BLAU an breiten Balken. Schmallinien + ROT_GELB_PAUSE unverändert
+- v21 (2026-04-22 Session 2): Finale Drehung nach letztem breitem Balken jetzt **5-Click** statt 90° — in CROSSING_STOP bedingungslos, in ROT_GELB_PAUSE via `do_5click = !m_rot_gelb_is_small`
+- v21 (2026-04-22 Session 2): Zwei latente Syntax-Bugs aus v20 entfernt (Platzhalter-`if {` ohne `}`) in STATE_CROSSING_STOP + STATE_SMALL_CROSSING_STOP — wurden nie bemerkt weil v20 nie kompiliert wurde
 - Claude Code Modell: `opus[1m]` in `~/.claude/settings.json` — bei Opus-Rate-Limit temporär auf `sonnet` wechseln (Opus-Sublimit ist unabhängig vom Gesamt-Limit)
 - `/popupssound` toggled Sound via Flag-Datei `C:\Users\alexa\.claude\sound_disabled` — alle drei Popup-Scripts prüfen dieses Flag
 - `/popups`-Befehl toggled Popups via Flag-Datei `C:\Users\alexa\.claude\popups_disabled` — kein settings.json-Edit nötig
@@ -111,16 +119,25 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **AUSRICHTEN-Bug fixen in v20:** In STATE_BLIND startet 360°-Servo zur Ausrichtung (`SERVO360_KICK_SPEED=0.55f`, `SERVO360_ALIGN_LOOPS=250`) — debuggen warum er nicht zuverlässig am Endschalter stoppt. ISR-Flag `s_endstop_hit` und `m_servo360_brake_ctr`-Logik prüfen. Falls nötig: SERVO360_KICK_SPEED erhöhen oder SERVO360_ALIGN_LOOPS verlängern.
-2. **Letzte Schmallinie fixen:** Nach ROT/GELB an Schmallinie #3 (`m_small_crossings_left==1`) geht Roboter in FINAL_HALT statt weiterfahren — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen.
-3. **D2-Höhen kalibrieren:** `SERVO_D2_BLAU_DOWN=0.34f` und `SERVO_D2_GRUEN_DOWN=0.13f` mit physisch ersetztem Servo verifizieren und ggf. anpassen.
-4. **Jiggle-Richtung korrigieren:** v20 hat falsche Richtung (von v18 geerbt) — nach AUSRICHTEN-Fix testen und Richtung umkehren wenn nötig.
+1. **Flash v21 und volle Runde fahren (Golden-Path-Test):** `pio run --target upload`, dann beobachten: (a) Initial-Ausrichtung stoppt beim 3. Endschalter-Hit statt beim 1., (b) D2-Ablage 4 mm flacher als vorher sichtbar, (c) an Balken 4 macht das Tablett 5-Click statt 90°, (d) Jiggle an breiten Balken: ein kurzer Puls + zwei Gegenpulse, (e) ROT vs GELB Jiggle-Richtung: an breiten Balken gegensätzlich, an Schmallinie identisch. Log: welche Farbe → welche Pulse-Richtung.
+
+   **Reliability-Issues (aus Testrunde offen):**
+   - **D2-Höhe etwas runtersetzen:**
+     - `SERVO_D2_BLAU_DOWN  = 0.43f` → **0.41f**
+     - `SERVO_D2_GRUEN_DOWN = 0.27f` → **0.25f**
+   - **!!! Hauptproblem !!! Jiggle muss für ALLE Farben funktionieren** (evt. D1 mit-jiggeln)
+   - **Hue-Wert GRÜN kalibrieren** — wird immer wieder als GELB erkannt (Grenze GELB/GRÜN in `lib/ColorSensor/ColorSensor.cpp`, aktuell bei ~52°)
+2. **Falls Initial-Ausrichtung zu weit dreht:** `SERVO360_CLICK_EXTRA_LOOPS=7` ist Nachlauf nach 3. Hit — ggf. separaten `SERVO360_ALIGN_EXTRA_LOOPS=0` einbauen.
+3. **Letzte Schmallinie (Bug 2):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlich in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
+4. **Doppelimpuls-Timing tunen:** 6+3+6 Loops sind Erstwert, ggf. Pause zwischen den zwei Gegenpulsen verlängern wenn Päckchen nicht sauber rutscht.
 
 ## Offene Fragen
-- **AUSRICHTEN-Bug:** Warum stoppt 360°-Servo in STATE_BLIND nicht zuverlässig am Endschalter? ISR-Timing oder Geschwindigkeitsproblem?
+- **Kalibrierungs-Drift:** Code nutzt `calibratePulseMinMax(0.050, 0.1050)`, echte Kalibrierung ist aber `(0.0303, 0.1223)` — soll umgestellt werden, oder reicht Click-Counting?
+- **Coast-Phase bei Initial-Ausrichtung:** `SERVO360_CLICK_EXTRA_LOOPS=7` (140 ms Nachlauf) — wirkt sich das bei 3×Hit schädlich aus? Ggf. separaten `SERVO360_ALIGN_EXTRA_LOOPS=0` einbauen.
+- **D2-Höhe +0.03 Puls** entspricht nur geschätzt ~4 mm — Hebelarm-Annahme ~10 cm. Nach erstem Flash physikalisch verifizieren.
+- **Letzter breiter Balken mit 5-Click** — reicht `SERVO360_ALIGN_LOOPS` als Timeout, damit alle 5 Clicks erreicht werden? Falls 5. Hit nach Timeout liegt → ALIGN_LOOPS erhöhen.
 - **Letzte Schmallinie (4.):** Exit-Bedingung in ROT_GELB_PAUSE bei `m_rot_gelb_is_small=true` und `m_small_crossings_left==1` — geht fälschlicherweise in FINAL_HALT?
 - **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
-- **D2 Tiefen nach physischem Ersatz verifizieren** — `BLAU_DOWN=0.34f`, `GRUEN_DOWN=0.13f` noch anzupassen.
 
 ## Session-Routine
 Am Ende jeder Session:
