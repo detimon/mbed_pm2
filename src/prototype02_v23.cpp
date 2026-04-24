@@ -171,8 +171,6 @@ static int   m_click_cnt            = 0;     // gezählte Endschalter-Hits im 5-
 static int   m_click_target         = 0;     // Ziel-Clicks (0 = normaler Endschalter-Stop)
 static int   m_click_coast_ctr      = 0;     // Extra-Loops nach letztem Click (Weiterdrehung)
 static bool  m_rot_gelb_click_phase = false; // unused, kept for reset symmetry
-static bool  m_servo360_wait_release = false; // wartet bis Endschalter physisch losgelassen wurde (Entprell-Schutz)
-static int   m_servo360_release_ctr  = 0;     // konsekutive Loops mit Pin=1 (losgelassen) — 3 reichen zum Akzeptieren
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -261,8 +259,6 @@ void roboter_v23_init(int loops_per_second)
     m_servo360_ctr      = 0;
     m_servo360_kick_ctr = 0;
     m_servo360_brake_ctr = 0;
-    m_servo360_wait_release = false;
-    m_servo360_release_ctr  = 0;
     s_endstop_hit       = false;
     m_straight_ctr    = 0;
     m_follow_ctr     = 0;
@@ -346,24 +342,8 @@ void roboter_v23_task(DigitalOut& led)
 
     // 360° Servo Ausrichtung: ISR-Flag → Brake Delay; nach Brake → sofort stopp; oder nach 5s Fallback
     if (m_servo360_ctr > 0) {
-        // Entprell-Schutz: warte bis der Endschalter physisch wieder losgelassen wurde
-        if (m_servo360_wait_release) {
-            int pin_state = g_endstop->read(); // 1 = losgelassen (PullUp), 0 = gedrückt
-            if (pin_state == 1) {
-                m_servo360_release_ctr++;
-                if (m_servo360_release_ctr >= 3) {
-                    m_servo360_wait_release = false;
-                    m_servo360_release_ctr  = 0;
-                    s_endstop_hit           = false; // alte Bounces verwerfen
-                }
-            } else {
-                m_servo360_release_ctr = 0;
-            }
-        }
-        if (s_endstop_hit && !m_servo360_wait_release && m_servo360_brake_ctr == 0 && m_servo360_kick_ctr == 0 && m_click_coast_ctr == 0) {
+        if (s_endstop_hit && m_servo360_brake_ctr == 0 && m_servo360_kick_ctr == 0 && m_click_coast_ctr == 0) {
             s_endstop_hit = false;
-            m_servo360_wait_release = true;
-            m_servo360_release_ctr  = 0;
             m_click_cnt++;
             bool stop_now = (m_click_target == 0) || (m_click_cnt >= m_click_target);
             if (stop_now) {
@@ -474,7 +454,6 @@ void roboter_v23_task(DigitalOut& led)
             if (m_guard_ctr > 0) {
                 m_guard_ctr--;
             } else if (all_sensors_active()) {
-                g_lf->setRotationalVelocityControllerGains(KP, KP_NL); // harte Gains für aggressive Ausrichtung in FOLLOW_1S
                 m_follow_ctr = FOLLOW_1S_LOOPS;
                 m_state      = STATE_FOLLOW_1S;
             }
@@ -484,17 +463,15 @@ void roboter_v23_task(DigitalOut& led)
         // FOLLOW_1S: keep line-following for 1 s after crossing detected
         // ----------------------------------------------------------------
         case STATE_FOLLOW_1S:
-            // Geschwindigkeit halbieren für präzise PID-Ausrichtung vor dem Bremsen
-            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity() * 0.5f;
-            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity() * 0.5f;
+            g_cmd_M1 = VEL_SIGN * g_lf->getLeftWheelVelocity();
+            g_cmd_M2 = VEL_SIGN * g_lf->getRightWheelVelocity();
             g_M1->setVelocity(g_cmd_M1);
             g_M2->setVelocity(g_cmd_M2);
 
             m_follow_ctr--;
             if (m_follow_ctr <= 0) {
-                float straight_v = (g_cmd_M1 + g_cmd_M2) / 2.0f; // Durchschnitt für synchrone Bremsrampe (keine Kurvenfahrt)
-                m_brake_start_M1 = straight_v;
-                m_brake_start_M2 = straight_v;
+                m_brake_start_M1 = g_cmd_M1;
+                m_brake_start_M2 = g_cmd_M2;
                 m_brake_ctr      = BRAKE_LOOPS;
                 m_state          = STATE_BRAKE;
             }
@@ -1148,8 +1125,6 @@ void roboter_v23_reset(DigitalOut& led)
     m_state          = STATE_BLIND;
     m_servo360_ctr   = 0;
     m_servo360_brake_ctr = 0;
-    m_servo360_wait_release = false;
-    m_servo360_release_ctr  = 0;
     s_endstop_hit    = false;
     m_straight_ctr   = 0;
     m_follow_ctr         = 0;
