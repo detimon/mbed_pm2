@@ -37,6 +37,7 @@
 // #define TEST_SERVO_ALL
 // #define TEST_SERVO_CALIB
 // #define TEST_IR
+// #define TEST_PARALLAX_360
 // #define TEST_DC_MOTOR
 // #define TEST_DREHSERVO_90
 // #define TEST_ENDSCHALTER

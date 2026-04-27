@@ -266,6 +266,13 @@
     #define TEST_RESET(led)   endschalter_reset(led)
     #define TEST_PRINT()      endschalter_print()
 
+#elif defined(TEST_PARALLAX_360)
+    #include "test_files/test_parallax_360.h"
+    #define TEST_INIT(lps)    parallax_360_init(lps)
+    #define TEST_TASK(led)    parallax_360_task(led)
+    #define TEST_RESET(led)   parallax_360_reset(led)
+    #define TEST_PRINT()      parallax_360_print()
+
 #elif defined(TEST_NEOPIXEL)
     #include "test_files/test_neopixel.h"
     #define TEST_INIT(lps)    neopixel_init(lps)
