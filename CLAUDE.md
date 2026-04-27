@@ -1,15 +1,14 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-24, Session 1)
-- **Code auf Commit `fa148bc v23 bro` zurückgesetzt** — alle Experimente dieser Session verworfen, Datei ist exakt im Session-Start-Zustand. Build grün, RAM 21.3 %, Flash 19.2 %
-- **Getestete Ansätze (alle wieder rückgängig):** Wave-Sweep (kontinuierliche D1/D2-Sinus-Oszillation), Micro-Stups Alignment (0.51f/2-Loop-Impuls), 45°-Korrektur verschoben (140→109), click_target 4/5 hin und her
-- **Erkenntnisse aus Session:**
-  - Originaler harter Jiggle (ctr 108/101 + 52/46/43 + D1-Push 82/78 + D2-Dip 72/68) ist besser als Wave-Sweep
-  - 45°-Korrektur (ctr==140/137) soll während D2 auf PARTIAL_DOWN feuern (nach erstem Absenken, VOR Volltiefe) — das ist die Original-Position, war korrekt
-  - 5 Clicks zuverlässig problematisch (50/50 laut Commit-Message `6478e35`) — noch ungeklärt ob Click-Counting oder Servo-Überschiessen
-  - Jiggle deckt zu wenig Fläche ab — Ziel 1.5 cm², aktuelle Amplituden (D1: 0.95→0.97, D2: ±0.02) zu klein
-- **Aktiver Code:** v23 auf Stand `fa148bc`, kein geflashter Test dieser Session
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-27)
+- **Parallax Feedback 360° Servo (#900-00360) vollständig in Betrieb genommen** — alle Winkel anfahrbar, Positions-Regelung stabil
+- **Neue Library:** `lib/ServoFeedback360/` — `ServoFeedback360`-Klasse mit P-Regler, `PwmIn`-Feedback, `Servo`-Klasse für PWM-Ausgabe (PwmOut auf PB_12 nicht möglich — kein Hardware-PWM-Timer-Mapping)
+- **Neues Test-Modul:** `TEST_PARALLAX_360` — 8-Schritt 45°-Sequenz, stoppt nach voller Umdrehung. Kalibrierte Parameter: KP=0.005, TOLERANCE_DEG=2.1°, MIN_SPEED=0.01, ANGLE_OFFSET=57°
+- **Pins Parallax-Servo:** PWM-Steuerung (weiss) → PB_12 (D3), Feedback (gelb) → PC_2 (A0)
+- **Wichtige Erkenntnis:** `PwmOut(PB_12)` crasht den Controller (PB_12 = TIM1_BKIN = nur Break-Input, kein PWM-Ausgang). Immer `Servo`-Klasse (Bit-Bang via DigitalOut) verwenden.
+- **test_config.h aktuell:** `TEST_PARALLAX_360` aktiv — vor nächster Roboter-Session auf `PROTOTYPE_02_V23` zurückstellen!
+- **v23 Roboter-Code:** unverändert auf `fa148bc`, offene Bugs (Jiggle-Fläche, 5-Click, letzte Schmallinie) noch offen
 
 ## Stack
 - Sprache: C++14
@@ -64,6 +63,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 | —   | PC_0      | Farbsensor – S3 |
 
 ## Aktive Entscheidungen
+- **ServoFeedback360-Library** (2026-04-27): `lib/ServoFeedback360/` — P-Regler mit PwmIn-Feedback. Konstruktor-Parameter: `(pwm_pin, fb_pin, kp, tolerance_deg, min_speed, angle_offset)`. PwmOut NICHT auf PB_12 verwenden (kein HW-PWM). Test-Modul: `TEST_PARALLAX_360`.
 - **v21 ist aktive Hauptversion** (2026-04-22) — Kopie v20 als neuer Arbeits-Zweig, test_config.h auf `PROTOTYPE_02_V21`. v20 bleibt als Backup, wird nicht mehr editiert
 - v21 (2026-04-22): `SMALL_FOLLOW_START_GUARD` Basis 706 → 781 (+1.5 s Blind-Sperre nach 4. Querbalken gegen Farb-/Balken-Trigger in der Kurve)
 - v21 (2026-04-22 Session 2): STATE_BLIND setzt `m_click_target=3` → 3× Endschalter-Überfahrt bei Initial-Ausrichtung (nutzt bestehende Click-Counting-ISR)
@@ -127,9 +127,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Jiggle-Amplitude erhöhen für 1.5 cm² Flächenabdeckung:** In [src/prototype02_v23.cpp](src/prototype02_v23.cpp) die vier Jiggle-Werte anpassen: D1-Push von `0.97f` → `1.0f` (ctr==82), D2-Dip von `-0.02f` → `-0.05f` (ctr==72), 360°-Jiggle-Speed von `0.37f/0.52f` → `0.33f/0.56f` (längerer Arm-Ausschlag). Dann flashen und testen ob Arm tatsächlich ~1.5 cm² abfährt.
-2. **5-Click-Zuverlässigkeit debuggen:** Bei jedem Durchlauf via `pio device monitor` die Click-Counts beobachten (printf in `_print()`). Hypothesis A: SERVO360_CLICK_EXTRA_LOOPS=7 schiesst über Endschalter hinaus → auf 3 reduzieren. Hypothesis B: Wait-for-Release-Schwelle (3 Loops) zu kurz bei Vibration → auf 5 erhöhen.
-3. **Letzte Schmallinie (Bug):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlicherweise in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
+1. **test_config.h zurückstellen:** `TEST_PARALLAX_360` auskommentieren, `PROTOTYPE_02_V23` einkommentieren — dann v23 Roboter-Code wieder aktiv für die offenen Bugs.
+2. **Jiggle-Amplitude erhöhen für 1.5 cm² Flächenabdeckung:** In [src/prototype02_v23.cpp](src/prototype02_v23.cpp) die vier Jiggle-Werte anpassen: D1-Push von `0.97f` → `1.0f` (ctr==82), D2-Dip von `-0.02f` → `-0.05f` (ctr==72), 360°-Jiggle-Speed von `0.37f/0.52f` → `0.33f/0.56f`. Dann flashen und testen.
+3. **5-Click-Zuverlässigkeit debuggen:** Via `pio device monitor` Click-Counts beobachten. Hypothesis A: SERVO360_CLICK_EXTRA_LOOPS=7 → auf 3 reduzieren. Hypothesis B: Wait-for-Release-Schwelle 3 Loops → auf 5 erhöhen.
+4. **Letzte Schmallinie (Bug):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlicherweise in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
 
 ## Offene Fragen
 - **5-Click-Zuverlässigkeit (50/50):** Ursache unklar — Click-Counting-Fehler (Geister-Clicks trotz Wait-for-Release) oder Servo überschiesst und verlässt Endschalter-Zone? Erst mit Monitor beobachten, dann gezielt fixen.
