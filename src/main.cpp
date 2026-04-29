@@ -273,6 +273,13 @@
     #define TEST_RESET(led)   roboter_v26_reset(led)
     #define TEST_PRINT()      roboter_v26_print()
 
+#elif defined(PROTOTYPE_03_V23_2)
+    #include "prototype03_v23_2.h"
+    #define TEST_INIT(lps)    roboter_v23_2_init(lps)
+    #define TEST_TASK(led)    roboter_v23_2_task(led)
+    #define TEST_RESET(led)   roboter_v23_2_reset(led)
+    #define TEST_PRINT()      roboter_v23_2_print()
+
 #elif defined(PROTOTYPE_03_V27)
     #include "prototype03_v27.h"
     #define TEST_INIT(lps)    roboter_v27_init(lps)
@@ -320,7 +327,11 @@
 #endif
 // ================================================
 
+#ifdef TEST_COLOR_NEOPIXEL
+bool do_execute_main_task = true;   // Sensor-Tests laufen direkt ohne Button
+#else
 bool do_execute_main_task = false;
+#endif
 bool do_reset_all_once    = false;
 
 DebounceIn user_button(BUTTON1);
@@ -352,9 +363,9 @@ int main()
                 do_reset_all_once = false;
                 TEST_RESET(user_led);
             }
+            user_led = !user_led;   // Blinken nur im Idle (Task verwaltet LED selbst)
         }
 
-        user_led = !user_led;
         TEST_PRINT();
 
         int elapsed_ms = duration_cast<milliseconds>(
@@ -369,6 +380,5 @@ int main()
 void toggle_do_execute_main_fcn()
 {
     do_execute_main_task = !do_execute_main_task;
-    if (do_execute_main_task)
-        do_reset_all_once = true;
+    do_reset_all_once = true;
 }

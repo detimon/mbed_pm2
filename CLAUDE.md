@@ -1,12 +1,14 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-28)
-- **`PROTOTYPE_03_V24` erstellt** — 1:1-Kopie von v23, nur Prefix `prototype03` + Funktionsname `roboter_v24_*`. Dient als Backup/Referenz. Keine inhaltlichen Änderungen.
-- **`PROTOTYPE_03_V25` erstellt** — leeres Skeleton (4 Pflichtfunktionen, kein Hardware-Code). Aktiver Arbeits-Zweig, bereit zum Befüllen.
-- **test_config.h aktuell:** `PROTOTYPE_03_V25` aktiv
-- **Kritischer Bug entdeckt (Code-Analyse):** Die in CLAUDE.md beschriebene Wait-for-Release-Entprellung (`m_servo360_wait_release` / `m_servo360_release_ctr`) existiert **nicht im Code** — weder in v23 noch in v24. Sie wurde beschrieben aber nie implementiert. Dies ist die wahrscheinlichste Ursache für die 5-Click-50/50-Fehlerquote.
-- **Weitere Bugs (Code-Analyse):** 3 unbenutzte Konstanten (`FOLLOW_ACCEL_LOOPS`, `SERVO_1S_LOOPS`, `SERVO360_SMALL_LOOPS`); `m_rot_gelb_click_phase` nie verwendet; `m_color_log[]` wird gefüllt aber nie ausgegeben; Platzhalter-Kommentar `// ... (dein bestehender Code) ...` in CROSSING_STOP.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-29)
+- **`PROTOTYPE_03_V27` aktiv** — Clean Rewrite mit ServoFeedback360 (Parallax 360°), 20 States, vollständige PICKUP + DELIVER Logik. test_config.h auf `PROTOTYPE_03_V27`.
+- **STATE_BLIND funktioniert (getestet)** — Fix: war timer-basiert (0.5 s), jetzt `sevenOfEightActive() && m_sf360_ready`. Roboter fährt zuverlässig bis zum Balken.
+- **ColorSensor Pins fix** — S0 war PA_1 (falsch), S1 war PA_4 (falsch) → korrigiert auf S0=PA_4, S1=PB_0 (wie alle anderen Versionen).
+- **serviceTray() + trayMoveTo() Refactor** — Muster von TEST_PARALLAX_360 übernommen: `stop()` im Ruhezustand (kein Jiggle), `update()` nur wenn `m_tray_moving=true`, `stop()` sobald `isAtTarget()`. Alle `moveToAngle()`-Calls gehen jetzt durch `trayMoveTo()`.
+- **STATE_CROSSING_STOP Timeout** — SF360_TIMEOUT_LOOPS=250 (5 s) wie TEST_PARALLAX_360, verhindert unbegrenztes Hängen.
+- **TEST_PARALLAX_360** — Targets auf 4×90° geändert (war 8×45°): `{90°, 180°, 270°, 0°}`.
+- **Arm-Extension beim ersten Balken noch nicht abschliessend getestet** — serviceTray/trayMoveTo-Fixes wurden gerade implementiert, noch nicht geflasht.
 
 ## Stack
 - Sprache: C++14
@@ -110,6 +112,11 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - v11 (2026-04-19): ROT + GELB stoppen jetzt ebenfalls am Endschalter (nicht mehr zeitbasiert `SERVO_ROT_LOOPS`/`SERVO_GELB_LOOPS`). BLAU-Sequenz letzte Phase: 360° dreht bis Endschalter statt 10 Loops fix. D1 bei BLAU = 0.85f (war 0.2/0.6).
 - **v14 (2026-04-20): 360°-Servo Brake-Delay nach Endschalter-Hit** — `SERVO360_ALIGN_SPEED=0.52f`, `SERVO360_BRAKE_LOOPS=0` (sofort stoppen). Servo dreht mit konstanter Geschwindigkeit 0.52 und stoppt beim Endschalter-Hit sofort. Gilt universell für Initial-Ausrichtung, CROSSING_STOP (4 Querbalken), SMALL_CROSSING_STOP (4 kleine Linien). Noch nicht getestet.
 - **Servo-Positionierung Präzision-Strategie (2026-04-20):** Anforderung ±4° Genauigkeit nach 45° Rotation ab Endschalter-Hit. Erste Taktik: **Timing-Kalibrierung** — messe wie lange Servo für 45° braucht, nutze diese Konstante. Fallback wenn nicht ausreichend: **Zweiter Endschalter auf PC_5** (frei, war vorher selbst Endschalter-Pin). Zweiter Schalter wird 45° nach erstem platziert → Hit löst sofortigen Stop aus.
+- **v27 ist aktiver Arbeits-Zweig** (2026-04-29) — Clean Rewrite mit ServoFeedback360, 20 States, trayMoveTo()-Wrapper-Pattern. v23.2 = funktionierender Referenzstand mit Endschalter-Logik. v24/v25 = Zwischenstände, nicht mehr aktiv.
+- **v27 (2026-04-29): trayMoveTo() Wrapper** — Alle moveToAngle()-Calls gehen durch trayMoveTo(). Setzt m_tray_moving=true. serviceTray() ruft update() nur wenn moving, stop() wenn isAtTarget() → kein Jiggle.
+- **v27 (2026-04-29): serviceTray() stop-when-at-target** — Muster aus TEST_PARALLAX_360 (P360_AT_TARGET → stop()). SF360_TIMEOUT_LOOPS=250 als Sicherheitsnetz.
+- **v27 (2026-04-29): STATE_BLIND wartet auf m_sf360_ready** — verhindert Race Condition wo serviceTray() moveToAngle(0°) nach dispatchOnColor() aufruft und Ziel überschreibt.
+- **TEST_PARALLAX_360 (2026-04-29): Targets 90°** — {90°, 180°, 270°, 0°}, N_TARGETS=4 (war 8×45°).
 - **v25 ist aktiver Arbeits-Zweig** (2026-04-28) — leeres Skeleton, bereit zum Befüllen. v24 = Kopie v23 als prototype03-Prefix (Backup). v23 = letzter getesteter Stand, unverändert.
 - **v23 war aktive Hauptversion** (2026-04-23 Session 2) — Kopie von v22. v22 bleibt als Backup unverändert, v21 ebenfalls
 - **v23 (2026-04-23 S2): Wait-for-Release-Entprellung für 360°-Endschalter-Click** — neue Statics `m_servo360_wait_release` + `m_servo360_release_ctr`. Nach jedem akzeptierten Click muss Pin 3 Loops lang `read()==1` liefern, sonst werden Prell-Impulse als Geister-Clicks gezählt. Brems-/Stopp-Logik unverändert
@@ -126,15 +133,15 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **v25 mit v24-Code befüllen + Wait-for-Release korrekt implementieren:** Den gesamten Inhalt von `src/prototype03_v24.cpp` in v25 kopieren (Includes, Konstanten, States, Hardware-Objekte, alle Funktionen). Danach in der Servo360-Task-Logik ([prototype03_v24.cpp:344](src/prototype03_v24.cpp)) die fehlende Entprellung einfügen: nach `s_endstop_hit = false; m_click_cnt++` einen `m_servo360_wait_release = true; m_servo360_release_ctr = 3;`-Block ergänzen, der weitere Hits blockiert bis der Pin 3 Loops lang wieder HIGH ist.
-2. **Jiggle-Amplitude erhöhen für 1.5 cm² Flächenabdeckung:** D1-Push `0.97f` → `1.0f` (ctr==82), D2-Dip `-0.02f` → `-0.05f` (ctr==72), 360°-Jiggle-Speed `0.37f/0.52f` → `0.33f/0.56f`. Flashen und testen.
-3. **Letzte Schmallinie (Bug):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlicherweise in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==0`-Zweig nach Decrement).
+1. **v27 flashen und ersten breiten Balken testen:** Roboter auf Track stellen, Button drücken — prüfen ob (a) Drehteller zum Farb-Slot dreht und stoppt ohne Jiggle, (b) D1-Arm auf 0.95f ausfährt, (c) D2-Arm auf Pickup-Tiefe absenkt, (d) Drehteller-Jiggle ±5° läuft, (e) Arm einzieht und Roboter weiterfährt. Wenn Arm nicht ausfährt: `m_tray_moving`-Flag und `STATE_CROSSING_STOP`-Exit-Bedingung prüfen.
+2. **Pickup-Tiefe kalibrieren (falls nötig):** `D2_DOWN_GRUEN=0.22f`, `D2_DOWN_BLAU=0.38f` aus v23.2 übernommen — physisch prüfen ob Päckchen korrekt gefasst wird. Faustregel +0.01 Puls ≈ 1.3 mm tiefer.
+3. **DELIVER-Phase testen** (nach erfolgreicher PICKUP): Schmallinie-Erkennung und Ablage-Sequenz.
 
 ## Offene Fragen
-- **5-Click-Zuverlässigkeit (50/50):** Wahrscheinlichste Ursache: Wait-for-Release-Entprellung fehlt komplett im Code (war beschrieben, nie implementiert) → Geister-Clicks zählen als echte Clicks. Fix in v25 geplant.
-- **Jiggle-Flächenabdeckung:** Aktuelle Amplituden (D1: 0.95→0.97, D2: ±0.02) decken schätzungsweise <0.3 cm² ab. Ziel 1.5 cm² — welche Kombination aus D1/D2/360°-Hub erreicht das ohne Päckchen wegzustossen?
-- **Letzte Schmallinie (4.):** Exit-Bedingung in ROT_GELB_PAUSE bei `m_rot_gelb_is_small=true` und `m_small_crossings_left==0` (nach Decrement in SMALL_CROSSING_STOP) — geht fälschlicherweise in FINAL_HALT statt weiter zu folgen.
-- **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
+- **Arm-Extension v27:** Wird D1 (0.95f) beim ersten breiten Balken ausgefahren? Hängt davon ab ob `m_tray_moving` beim CROSSING_STOP-Exit korrekt gesetzt ist und `isAtTarget()` nicht durch initial m_error=0.0f falsch-true liefert (durch `m_sf360_ready`-Bedingung in STATE_BLIND sollte das jetzt verhindert sein).
+- **Drehteller-Jiggle-Abdeckung:** JIGGLE_AMPL_DEG=5°, D1_JIGGLE_OUT=1.00f / D1_JIGGLE_IN=0.90f — reicht das für 1.5 cm² Flächenabdeckung? Erst nach erfolgreichem Pickup-Test relevant.
+- **DELIVER-Phase ungetestet:** Schmallinie-Detection (STATE_SMALL_FOLLOW), COLOUR_STOP, DELIVER-Sequenz — alles noch nicht hardware-validiert.
+- **Angle Clamp 0.15 rad/Loop** (LineFollower) — noch nicht validiert.
 
 ## Session-Routine
 Am Ende jeder Session:

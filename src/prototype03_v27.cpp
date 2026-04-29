@@ -114,8 +114,9 @@ static const float SENSOR_THRESHOLD = 0.40f;
 static const float SF360_KP        = 0.005f;
 static const float SF360_TOL_DEG   = 2.1f;
 static const float SF360_MIN_SPEED = 0.01f;
-static const float SF360_OFFSET    = 57.0f;
-static const int   SF360_WARMUP_LOOPS = 25;   // 500 ms feedback stabilisation
+static const float SF360_OFFSET    = 70.0f;
+static const int   SF360_WARMUP_LOOPS  = 25;   // 500 ms feedback stabilisation
+static const int   SF360_TIMEOUT_LOOPS = 250;  // 5 s max wait (like TEST_PARALLAX_360)
 
 // Colour-to-slot mapping
 //   colour codes: 3=ROT, 4=GELB, 5=GRÜN, 7=BLAU
@@ -187,6 +188,8 @@ static int m_accel_ctr         = 0;     // restart-acceleration ramp
 static int m_crossing_ctr      = 0;
 static int m_small_crossing_ctr = 0;
 static int m_drive_past_ctr    = 0;
+static int  m_tray_timeout_ctr  = 0;
+static bool m_tray_moving       = false; // true while P-controller should run
 static int m_phase_ctr         = 0;     // generic per-state internal counter
 static int m_phase_idx         = 0;     // generic phase index inside PICKUP/DELIVER
 
@@ -353,6 +356,15 @@ static void pollColorAtStandstill()
     }
 }
 
+// Set a new tray target and start the P-controller (mirrors TEST_PARALLAX_360
+// MOVING state). Use this everywhere instead of g_servoTray->moveToAngle()
+// so serviceTray() knows to call update() instead of stop().
+static void trayMoveTo(float deg)
+{
+    g_servoTray->moveToAngle(deg);
+    m_tray_moving = true;
+}
+
 // Set tray target_angle + dispatch flags from the (just-confirmed) action colour.
 static void dispatchOnColor(int color, bool small_line)
 {
@@ -360,7 +372,7 @@ static void dispatchOnColor(int color, bool small_line)
     if (slot >= 0) {
         m_target_slot   = slot;
         m_target_angle  = COLOR_ANGLE[slot];
-        g_servoTray->moveToAngle(m_target_angle);
+        trayMoveTo(m_target_angle);
     }
     m_needs_drive_past = (color == 3 || color == 4); // ROT or GELB
     (void)small_line;
@@ -397,7 +409,10 @@ static void updateUserLed(DigitalOut& led)
     }
 }
 
-// Drive the tray feedback loop. Caller decides target via moveToAngle().
+// Drive the tray feedback loop — mirrors TEST_PARALLAX_360's warmup/moving pattern:
+//   warmup: stop() until feedback valid (no premature movement).
+//   moving: update() until isAtTarget() → stop() and wait (no jiggle at rest).
+//   stopped: stop() every loop; trayMoveTo() restarts movement.
 static void serviceTray()
 {
     if (!g_servoTray) return;
@@ -407,11 +422,18 @@ static void serviceTray()
         if (m_sf360_warmup_ctr >= SF360_WARMUP_LOOPS &&
             g_servoTray->isFeedbackValid()) {
             m_sf360_ready = true;
-            g_servoTray->moveToAngle(0.0f); // initial home → ROT (0°)
         }
         return;
     }
+    if (!m_tray_moving) {
+        g_servoTray->stop();
+        return;
+    }
     g_servoTray->update();
+    if (g_servoTray->isAtTarget()) {
+        g_servoTray->stop();
+        m_tray_moving = false;
+    }
 }
 
 // ===========================================================================
@@ -420,12 +442,12 @@ static void serviceTray()
 void roboter_v27_init(int /*loops_per_second*/)
 {
     // Motors — pin assignment per Drahtzugliste V10.
-    static DCMotor motor_M10(PB_13, PB_6, PB_7, GEAR_RATIO, KN, VOLTAGE_MAX);
-    static DCMotor motor_M11(PA_9,  PA_6, PC_7, GEAR_RATIO, KN, VOLTAGE_MAX);
+    static DCMotor motor_M10(PB_13, PA_6, PC_7, GEAR_RATIO, KN, VOLTAGE_MAX);
+    static DCMotor motor_M11(PA_9,  PB_6, PB_7, GEAR_RATIO, KN, VOLTAGE_MAX);
     static DigitalOut enable_motors(PB_15);
     static LineFollower lineFollower(PB_9, PB_8, BAR_DIST, D_WHEEL, B_WHEEL,
                                      motor_M10.getMaxPhysicalVelocity());
-    static ColorSensor colorSensor(PB_3, PC_3, PA_1, PA_4, PC_1, PC_0);
+    static ColorSensor colorSensor(PB_3, PC_3, PA_4, PB_0, PC_1, PC_0);
     static Servo servoVert(PB_2);    // M21
     static Servo servoHoriz(PC_8);   // M20
     static ServoFeedback360 servoTray(PB_12, PC_2,
@@ -473,6 +495,8 @@ void roboter_v27_init(int /*loops_per_second*/)
     m_crossing_ctr       = 0;
     m_small_crossing_ctr = 0;
     m_drive_past_ctr     = 0;
+    m_tray_timeout_ctr   = 0;
+    m_tray_moving        = false;
     m_phase_ctr          = 0;
     m_phase_idx          = 0;
     m_crossings_left     = 0;
@@ -515,7 +539,7 @@ static bool runPickupPhase()
         if (m_phase_ctr == 0) {
             g_servoHoriz->enable(D1_EXTENDED);
             g_servoVert ->enable(D2_UP);
-            g_servoTray->moveToAngle(m_target_angle + PICKUP_OFFSET_DEG);
+            trayMoveTo(m_target_angle + PICKUP_OFFSET_DEG);
         }
         m_phase_ctr++;
         if (m_phase_ctr >= PICKUP_PHASE1_LOOPS) {
@@ -541,7 +565,7 @@ static bool runPickupPhase()
     // Phase 2 — tray back to target_angle.
     if (m_phase_idx == 2) {
         if (m_phase_ctr == 0) {
-            g_servoTray->moveToAngle(m_target_angle);
+            trayMoveTo(m_target_angle);
         }
         m_phase_ctr++;
         if (m_phase_ctr >= PICKUP_PHASE3_LOOPS) {
@@ -570,16 +594,16 @@ static bool runPickupPhase()
         int qi = m_phase_ctr / q;
         if (m_phase_ctr % q == 0) {
             if (qi == 0) {
-                g_servoTray ->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
+                trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
                 g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
             } else if (qi == 1) {
-                g_servoTray ->moveToAngle(m_target_angle - JIGGLE_AMPL_DEG);
+                trayMoveTo(m_target_angle - JIGGLE_AMPL_DEG);
                 g_servoHoriz->setPulseWidth(D1_JIGGLE_IN);
             } else if (qi == 2) {
-                g_servoTray ->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
+                trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
                 g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
             } else {
-                g_servoTray ->moveToAngle(m_target_angle);
+                trayMoveTo(m_target_angle);
                 g_servoHoriz->setPulseWidth(D1_EXTENDED);
             }
         }
@@ -618,7 +642,7 @@ static bool runDeliverPhase()
         if (m_phase_ctr == 0) {
             g_servoHoriz->enable(D1_EXTENDED);
             g_servoVert ->enable(depthForColor(m_action_color));
-            g_servoTray ->moveToAngle(m_target_angle);
+            trayMoveTo(m_target_angle);
         }
         m_phase_ctr++;
         if (m_phase_ctr >= PICKUP_PHASE4_LOOPS) {
@@ -634,16 +658,16 @@ static bool runDeliverPhase()
         int qi = m_phase_ctr / q;
         if (m_phase_ctr % q == 0) {
             if (qi == 0) {
-                g_servoTray ->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
+                trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
                 g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
             } else if (qi == 1) {
-                g_servoTray ->moveToAngle(m_target_angle - JIGGLE_AMPL_DEG);
+                trayMoveTo(m_target_angle - JIGGLE_AMPL_DEG);
                 g_servoHoriz->setPulseWidth(D1_JIGGLE_IN);
             } else if (qi == 2) {
-                g_servoTray ->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
+                trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
                 g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
             } else {
-                g_servoTray ->moveToAngle(m_target_angle);
+                trayMoveTo(m_target_angle);
                 g_servoHoriz->setPulseWidth(D1_EXTENDED);
             }
         }
@@ -695,9 +719,11 @@ void roboter_v27_task(DigitalOut& led)
         // ------------------------------------------------------------------
         case STATE_BLIND:
             driveStraight(BLIND_SPEED);
-            // Tray homing: command 0° once feedback is stable.
-            if (m_sf360_ready && sevenOfEightActive() &&
-                fabsf(g_servoTray->getError()) < SF360_TOL_DEG) {
+            // Wait for bar AND tray feedback (like TEST_PARALLAX_360 explicit warmup).
+            // m_sf360_ready becomes true after 25 loops of stop() + isFeedbackValid().
+            if (sevenOfEightActive() && m_sf360_ready) {
+                g_servoHoriz->enable(D1_RETRACTED);
+                g_servoVert ->enable(D2_UP);
                 m_straight_ctr = STRAIGHT_LOOPS;
                 m_state = STATE_STRAIGHT;
             }
@@ -845,7 +871,7 @@ void roboter_v27_task(DigitalOut& led)
                 m_assumption_color = m_color_pending;
                 int slot = colorToSlot(m_assumption_color);
                 if (slot >= 0) {
-                    g_servoTray->moveToAngle(COLOR_ANGLE[slot]);
+                    trayMoveTo(COLOR_ANGLE[slot]);
                 }
                 m_assumption_set = true;
                 m_state = STATE_COLOUR_ASSUMPTION;
@@ -890,25 +916,35 @@ void roboter_v27_task(DigitalOut& led)
             } else if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 if (m_action_color == 0) m_action_color = m_color_fallback;
                 dispatchOnColor(m_action_color, false);
+                m_tray_timeout_ctr = 0;
             }
 
             m_crossing_ctr--;
-            if (m_crossing_ctr <= 0 && g_servoTray->isAtTarget()) {
-                m_slowing       = false;
-                m_slow_ctr      = 0;
-                m_color_delay_ctr = COLOR_READ_DELAY;
-                m_color_pending = 0;
-                m_color_stable  = 0;
-                m_phase_idx     = 0;
-                m_phase_ctr     = 0;
 
-                if (m_needs_drive_past) {
-                    m_drive_past_ctr = 0;
-                    g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
-                    g_lf->setMaxWheelVelocity(MAX_SPEED);
-                    m_state = STATE_COLOUR_DRIVE_PAST;
-                } else {
-                    m_state = STATE_PICKUP;
+            // Wait for tray to reach target (mirrors TEST_PARALLAX_360 MOVING state).
+            // SF360_TIMEOUT_LOOPS (5 s) guards against infinite hang if servo stalls.
+            if (m_crossing_ctr <= 0) {
+                m_tray_timeout_ctr++;
+                bool tray_ok = g_servoTray->isAtTarget() ||
+                               m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
+                if (tray_ok) {
+                    m_slowing         = false;
+                    m_slow_ctr        = 0;
+                    m_color_delay_ctr = COLOR_READ_DELAY;
+                    m_color_pending   = 0;
+                    m_color_stable    = 0;
+                    m_phase_idx       = 0;
+                    m_phase_ctr       = 0;
+                    m_tray_timeout_ctr = 0;
+
+                    if (m_needs_drive_past) {
+                        m_drive_past_ctr = 0;
+                        g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
+                        g_lf->setMaxWheelVelocity(MAX_SPEED);
+                        m_state = STATE_COLOUR_DRIVE_PAST;
+                    } else {
+                        m_state = STATE_PICKUP;
+                    }
                 }
             }
             break;
@@ -984,7 +1020,7 @@ void roboter_v27_task(DigitalOut& led)
                 m_assumption_color = m_color_pending;
                 int slot = colorToSlot(m_assumption_color);
                 if (slot >= 0) {
-                    g_servoTray->moveToAngle(COLOR_ANGLE[slot]);
+                    trayMoveTo(COLOR_ANGLE[slot]);
                 }
                 m_assumption_set = true;
                 m_state = STATE_SMALL_COLOUR_ASSUMPTION;

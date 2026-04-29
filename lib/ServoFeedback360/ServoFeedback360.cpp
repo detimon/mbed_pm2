@@ -25,7 +25,7 @@ void ServoFeedback360::update()
     // Update angle from feedback only after at least one full cycle is measured.
     if (isFeedbackValid()) {
         float duty  = m_pwm_in.dutycycle();
-        float angle = (duty - DUTY_MIN) / (DUTY_MAX - DUTY_MIN) * 360.0f - m_angle_offset;
+        float angle = 360.0f - ((duty - DUTY_MIN) / (DUTY_MAX - DUTY_MIN) * 360.0f) - m_angle_offset;
         // Normalize to [0, 360)
         while (angle <    0.0f) angle += 360.0f;
         while (angle >= 360.0f) angle -= 360.0f;
@@ -88,7 +88,7 @@ void ServoFeedback360::setServoSpeed(float speed)
     //   0.5 + 0.0*0.5 = 0.5  → 1500 µs (stop)
     //   0.5 - 1.0*0.5 = 0.0  → 1280 µs (full CW)
     //   0.5 + 1.0*0.5 = 1.0  → 1720 µs (full CCW)
-    float pulse = 0.5f + speed * 0.5f;
+    float pulse = 0.5f - speed * 0.5f;
     if (pulse < 0.0f) pulse = 0.0f;
     if (pulse > 1.0f) pulse = 1.0f;
     m_servo.setPulseWidth(pulse);

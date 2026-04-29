@@ -279,19 +279,18 @@ int ColorSensor::getColor()
     // detection up to ~83% white floor contamination.
     const float NORM_DELTA_MIN  = 0.03f;  // norm(max-min) below => too diluted to classify
 
-    // Hue-based colour thresholds (degrees, 0-360).
-    // Messung 2026-04-19 (neue Sensorhalterung):
-    //   BLAU:  hue ≈ 364°–3°  (wrap — sehr niedrig, knapp unter ROT)
-    //   ROT:   hue ≈ 11°–14°
-    //   WHITE: hue ≈ 30°       (UNKNOWN-Schutzzone)
-    //   GELB:  hue ≈ 37°–40°
-    //   GRÜN:  hue ≈ 62°–66°
-    const float HUE_BLUE_MAX_LOW  =   7.0f;  // 0°–7°     = BLAU (wrap-Bereich)
-    const float HUE_RED_MAX       =  20.0f;  // 7°–20°    = ROT
-    const float HUE_WHITE_MAX     =  28.0f;  // 20°–28°   = UNKNOWN (WHITE ≈30° fällt jetzt in GELB, Sättigungsfilter schützt)
-    const float HUE_YELLOW_MAX    =  38.5f;  // 28°–38°   = GELB (neu 2026-04-23: harte Grenze GELB max 38°)
-    const float HUE_GREEN_MAX     =  80.0f;  // 39°–80°   = GRÜN (neu 2026-04-23: startet ab min 39°)
-    const float HUE_BLUE_MIN_HIGH = 348.0f;  // 348°–360° = BLAU (wrap-Bereich, erweitert)
+    // Hue-Grenzen (Messung 2026-04-29):
+    //   ROT:   0°–5°
+    //   GELB:  30°–33°
+    //   GRÜN:  90°–101°
+    //   BLAU:  228°–237°  (kein Wrap mehr)
+    const float HUE_RED_MAX      =   5.0f;
+    const float HUE_YELLOW_MIN   =  30.0f;
+    const float HUE_YELLOW_MAX   =  33.0f;
+    const float HUE_GREEN_MIN    =  90.0f;
+    const float HUE_GREEN_MAX    = 101.0f;
+    const float HUE_BLUE_MIN     = 228.0f;
+    const float HUE_BLUE_MAX     = 237.0f;
 
     const int STABLE_COUNT = 1;
 
@@ -327,21 +326,15 @@ int ColorSensor::getColor()
             if (hue < 0.0f) hue += 360.0f;
         }
 
-        // BLAU-Zone hat Priorität vor WHITE-Check, damit niedrige Sättigung
-        // in der BLAU-Zone nicht als UNKNOWN klassifiziert wird.
-        const bool in_blue_zone = (hue < HUE_BLUE_MAX_LOW || hue > HUE_BLUE_MIN_HIGH);
-
-        if (in_blue_zone) {
-            candidate = 7; // BLAU
-        } else if (satp < SATP_GRAY_MAX && c0 > C0_WHITE_MIN) {
-            candidate = 0; // WHITE → UNKNOWN (keine Action-Farbe)
+        if (satp < SATP_GRAY_MAX && c0 > C0_WHITE_MIN) {
+            candidate = 0; // WHITE → UNKNOWN
         } else if (delta < NORM_DELTA_MIN) {
             candidate = 0; // zu stark verdünnt → UNKNOWN
-        } else if (hue < HUE_RED_MAX)     candidate = 3; // ROT
-        else if  (hue < HUE_WHITE_MAX)    candidate = 0; // UNKNOWN (WHITE ≈30°)
-        else if  (hue < HUE_YELLOW_MAX)   candidate = 4; // GELB
-        else if  (hue < HUE_GREEN_MAX)    candidate = 5; // GRÜN
-        else                               candidate = 0; // UNKNOWN (80°–348°)
+        } else if (hue <= HUE_RED_MAX)                              candidate = 3; // ROT   0°–5°
+        else if (hue >= HUE_YELLOW_MIN && hue <= HUE_YELLOW_MAX)   candidate = 4; // GELB  30°–33°
+        else if (hue >= HUE_GREEN_MIN  && hue <= HUE_GREEN_MAX)    candidate = 5; // GRÜN  90°–101°
+        else if (hue >= HUE_BLUE_MIN   && hue <= HUE_BLUE_MAX)     candidate = 7; // BLAU  228°–237°
+        else                                                         candidate = 0; // UNKNOWN
 
 #if COLOR_DEBUG
         printf("c0=%.1f  rn=%.3f gn=%.3f bn=%.3f  delta=%.3f  hue=%.1f  out=%d\n",
