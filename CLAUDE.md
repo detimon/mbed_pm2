@@ -1,14 +1,12 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-27)
-- **Parallax Feedback 360° Servo (#900-00360) vollständig in Betrieb genommen** — alle Winkel anfahrbar, Positions-Regelung stabil
-- **Neue Library:** `lib/ServoFeedback360/` — `ServoFeedback360`-Klasse mit P-Regler, `PwmIn`-Feedback, `Servo`-Klasse für PWM-Ausgabe (PwmOut auf PB_12 nicht möglich — kein Hardware-PWM-Timer-Mapping)
-- **Neues Test-Modul:** `TEST_PARALLAX_360` — 8-Schritt 45°-Sequenz, stoppt nach voller Umdrehung. Kalibrierte Parameter: KP=0.005, TOLERANCE_DEG=2.1°, MIN_SPEED=0.01, ANGLE_OFFSET=57°
-- **Pins Parallax-Servo:** PWM-Steuerung (weiss) → PB_12 (D3), Feedback (gelb) → PC_2 (A0)
-- **Wichtige Erkenntnis:** `PwmOut(PB_12)` crasht den Controller (PB_12 = TIM1_BKIN = nur Break-Input, kein PWM-Ausgang). Immer `Servo`-Klasse (Bit-Bang via DigitalOut) verwenden.
-- **test_config.h aktuell:** `TEST_PARALLAX_360` aktiv — vor nächster Roboter-Session auf `PROTOTYPE_02_V23` zurückstellen!
-- **v23 Roboter-Code:** unverändert auf `fa148bc`, offene Bugs (Jiggle-Fläche, 5-Click, letzte Schmallinie) noch offen
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-28)
+- **`PROTOTYPE_03_V24` erstellt** — 1:1-Kopie von v23, nur Prefix `prototype03` + Funktionsname `roboter_v24_*`. Dient als Backup/Referenz. Keine inhaltlichen Änderungen.
+- **`PROTOTYPE_03_V25` erstellt** — leeres Skeleton (4 Pflichtfunktionen, kein Hardware-Code). Aktiver Arbeits-Zweig, bereit zum Befüllen.
+- **test_config.h aktuell:** `PROTOTYPE_03_V25` aktiv
+- **Kritischer Bug entdeckt (Code-Analyse):** Die in CLAUDE.md beschriebene Wait-for-Release-Entprellung (`m_servo360_wait_release` / `m_servo360_release_ctr`) existiert **nicht im Code** — weder in v23 noch in v24. Sie wurde beschrieben aber nie implementiert. Dies ist die wahrscheinlichste Ursache für die 5-Click-50/50-Fehlerquote.
+- **Weitere Bugs (Code-Analyse):** 3 unbenutzte Konstanten (`FOLLOW_ACCEL_LOOPS`, `SERVO_1S_LOOPS`, `SERVO360_SMALL_LOOPS`); `m_rot_gelb_click_phase` nie verwendet; `m_color_log[]` wird gefüllt aber nie ausgegeben; Platzhalter-Kommentar `// ... (dein bestehender Code) ...` in CROSSING_STOP.
 
 ## Stack
 - Sprache: C++14
@@ -112,7 +110,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - v11 (2026-04-19): ROT + GELB stoppen jetzt ebenfalls am Endschalter (nicht mehr zeitbasiert `SERVO_ROT_LOOPS`/`SERVO_GELB_LOOPS`). BLAU-Sequenz letzte Phase: 360° dreht bis Endschalter statt 10 Loops fix. D1 bei BLAU = 0.85f (war 0.2/0.6).
 - **v14 (2026-04-20): 360°-Servo Brake-Delay nach Endschalter-Hit** — `SERVO360_ALIGN_SPEED=0.52f`, `SERVO360_BRAKE_LOOPS=0` (sofort stoppen). Servo dreht mit konstanter Geschwindigkeit 0.52 und stoppt beim Endschalter-Hit sofort. Gilt universell für Initial-Ausrichtung, CROSSING_STOP (4 Querbalken), SMALL_CROSSING_STOP (4 kleine Linien). Noch nicht getestet.
 - **Servo-Positionierung Präzision-Strategie (2026-04-20):** Anforderung ±4° Genauigkeit nach 45° Rotation ab Endschalter-Hit. Erste Taktik: **Timing-Kalibrierung** — messe wie lange Servo für 45° braucht, nutze diese Konstante. Fallback wenn nicht ausreichend: **Zweiter Endschalter auf PC_5** (frei, war vorher selbst Endschalter-Pin). Zweiter Schalter wird 45° nach erstem platziert → Hit löst sofortigen Stop aus.
-- **v23 ist aktive Hauptversion** (2026-04-23 Session 2) — Kopie von v22. v22 bleibt als Backup unverändert, v21 ebenfalls
+- **v25 ist aktiver Arbeits-Zweig** (2026-04-28) — leeres Skeleton, bereit zum Befüllen. v24 = Kopie v23 als prototype03-Prefix (Backup). v23 = letzter getesteter Stand, unverändert.
+- **v23 war aktive Hauptversion** (2026-04-23 Session 2) — Kopie von v22. v22 bleibt als Backup unverändert, v21 ebenfalls
 - **v23 (2026-04-23 S2): Wait-for-Release-Entprellung für 360°-Endschalter-Click** — neue Statics `m_servo360_wait_release` + `m_servo360_release_ctr`. Nach jedem akzeptierten Click muss Pin 3 Loops lang `read()==1` liefern, sonst werden Prell-Impulse als Geister-Clicks gezählt. Brems-/Stopp-Logik unverändert
 - **v23 (2026-04-23 S2): Intro-Sequenz PID-Verbesserungen** — (a) harte `setRotationalVelocityControllerGains(KP, KP_NL)` beim Übergang FOLLOW → FOLLOW_1S (vorher blieben weiche KP_FOLLOW aktiv), (b) Bremsrampe mit Durchschnitt `(M1+M2)/2` statt individuellen Motor-Commands → symmetrisches Bremsen, (c) Fahrgeschwindigkeit in FOLLOW_1S halbiert (`* 0.5f`) für mehr PID-Ausrichtungszeit
 - **v23 (2026-04-23 S2): STATE_BLIND Initial-Ausrichtung auf 5 Clicks** (vorher 3) — Servo überfährt Endschalter 4×, stoppt beim 5. Hit
@@ -127,16 +126,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **test_config.h zurückstellen:** `TEST_PARALLAX_360` auskommentieren, `PROTOTYPE_02_V23` einkommentieren — dann v23 Roboter-Code wieder aktiv für die offenen Bugs.
-2. **Jiggle-Amplitude erhöhen für 1.5 cm² Flächenabdeckung:** In [src/prototype02_v23.cpp](src/prototype02_v23.cpp) die vier Jiggle-Werte anpassen: D1-Push von `0.97f` → `1.0f` (ctr==82), D2-Dip von `-0.02f` → `-0.05f` (ctr==72), 360°-Jiggle-Speed von `0.37f/0.52f` → `0.33f/0.56f`. Dann flashen und testen.
-3. **5-Click-Zuverlässigkeit debuggen:** Via `pio device monitor` Click-Counts beobachten. Hypothesis A: SERVO360_CLICK_EXTRA_LOOPS=7 → auf 3 reduzieren. Hypothesis B: Wait-for-Release-Schwelle 3 Loops → auf 5 erhöhen.
-4. **Letzte Schmallinie (Bug):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlicherweise in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==1`-Zweig).
+1. **v25 mit v24-Code befüllen + Wait-for-Release korrekt implementieren:** Den gesamten Inhalt von `src/prototype03_v24.cpp` in v25 kopieren (Includes, Konstanten, States, Hardware-Objekte, alle Funktionen). Danach in der Servo360-Task-Logik ([prototype03_v24.cpp:344](src/prototype03_v24.cpp)) die fehlende Entprellung einfügen: nach `s_endstop_hit = false; m_click_cnt++` einen `m_servo360_wait_release = true; m_servo360_release_ctr = 3;`-Block ergänzen, der weitere Hits blockiert bis der Pin 3 Loops lang wieder HIGH ist.
+2. **Jiggle-Amplitude erhöhen für 1.5 cm² Flächenabdeckung:** D1-Push `0.97f` → `1.0f` (ctr==82), D2-Dip `-0.02f` → `-0.05f` (ctr==72), 360°-Jiggle-Speed `0.37f/0.52f` → `0.33f/0.56f`. Flashen und testen.
+3. **Letzte Schmallinie (Bug):** Nach ROT/GELB an Schmallinie #3 geht Roboter fälschlicherweise in FINAL_HALT — Exit-Logik in STATE_ROT_GELB_PAUSE prüfen (`m_small_crossings_left==0`-Zweig nach Decrement).
 
 ## Offene Fragen
-- **5-Click-Zuverlässigkeit (50/50):** Ursache unklar — Click-Counting-Fehler (Geister-Clicks trotz Wait-for-Release) oder Servo überschiesst und verlässt Endschalter-Zone? Erst mit Monitor beobachten, dann gezielt fixen.
+- **5-Click-Zuverlässigkeit (50/50):** Wahrscheinlichste Ursache: Wait-for-Release-Entprellung fehlt komplett im Code (war beschrieben, nie implementiert) → Geister-Clicks zählen als echte Clicks. Fix in v25 geplant.
 - **Jiggle-Flächenabdeckung:** Aktuelle Amplituden (D1: 0.95→0.97, D2: ±0.02) decken schätzungsweise <0.3 cm² ab. Ziel 1.5 cm² — welche Kombination aus D1/D2/360°-Hub erreicht das ohne Päckchen wegzustossen?
-- **Wait-for-Release-Schwelle:** 3 Loops (60 ms) — reicht das gegen längeres Prellen? Falls weiter Geister-Clicks → auf 5 erhöhen.
-- **Letzte Schmallinie (4.):** Exit-Bedingung in ROT_GELB_PAUSE bei `m_rot_gelb_is_small=true` und `m_small_crossings_left==1` — geht fälschlicherweise in FINAL_HALT?
+- **Letzte Schmallinie (4.):** Exit-Bedingung in ROT_GELB_PAUSE bei `m_rot_gelb_is_small=true` und `m_small_crossings_left==0` (nach Decrement in SMALL_CROSSING_STOP) — geht fälschlicherweise in FINAL_HALT statt weiter zu folgen.
 - **Angle Clamp 0.15 rad/Loop** — noch nicht validiert.
 
 ## Session-Routine
