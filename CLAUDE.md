@@ -1,15 +1,15 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-28)
-- **`PROTOTYPE_03_V27` aktiv** — Clean Rewrite mit ServoFeedback360, 20 States, vollständige PICKUP + DELIVER Logik. Build kompiliert (RAM 21.3 %, Flash 18.9 %).
-- **Drehteller-Wackeln gefixt** — `ServoFeedback360` um `disable()`/`enable()` erweitert. Im Idle wird Bit-Bang-PWM komplett abgeschaltet (DigitalOut LOW). Ursache: ISR-Kontention (PwmIn × 2, Encoder × 2, andere Servos) macht die Pulsbreite jittery → Parallax 360 sah variable Pulse → "konstant hin und her". `serviceTray()` ruft jetzt nach `isAtTarget()` → `stop()`+`disable()`. `trayMoveTo()` ruft `enable(0.5f)` vor jedem Move. **Geflasht aber nicht abschliessend hardware-validiert.**
-- **Schmallinien-Falsch-Dreh-Bug gefixt** — Beim `smallLineActive()`-Trigger wird die Assumption-Farbe jetzt durchgereicht (`m_action_color = m_assumption_color`), nicht mehr verworfen. Ursache: Farbsensor sitzt vorne am Chassis, Sensorbalken mittig — beim Linientrigger schaute Farbsensor schon hinter der Linie und las zufällig die NÄCHSTE Karte → falscher Slot. Fallback-Mechanismus bleibt für den Fall dass Assumption gar nicht gefeuert hat.
-- **Jiggle-Parameter beruhigt** — `JIGGLE_AMPL_DEG`: 5° → **3°** (knapp ausserhalb 2.1° Toleranz, kaum Schwingung). `JIGGLE_LOOPS`: 75 → **100** (2 s, mehr Settling-Zeit pro Quartal). `D1_JIGGLE_OUT/IN` ersetzt durch `D1_JIGGLE_OFFSET=0.05f` relativ zur Basis-Extension.
-- **D2 Pickup-Tiefen ~12.5 mm tiefer** — Drei iterative Senkungen (4 + 5 + 3.5 mm). `D2_DOWN_BLAU`: 0.38 → **0.28**. `D2_DOWN_GRUEN`: 0.22 → **0.07** (User-Adjust noch tiefer als symmetrisch). Faustregel: -0.01 Puls ≈ -1.3 mm.
-- **BLAU-Arm fährt 13 mm kürzer aus** — Neuer `extensionForColor()`-Helper, `D1_EXTENDED_BLAU=0.85f` (war einheitlich 0.95). `D1_JIGGLE_OFFSET` ist relativ → BLAU jiggelt 0.80↔0.90.
-- **SMALL_CROSSING_STOP Timeout konsistent** — SF360_TIMEOUT_LOOPS=250 jetzt auch dort (war nur in CROSSING_STOP).
-- **Pin-Schema von V23 übernommen** — Encoder M10=(PB_13,PA_6,PC_7), M11=(PA_9,PB_6,PB_7). ColorSensor S0=PA_4, S1=PB_0. Drahtzugliste-V10-Spec war zur ursprünglichen Hardware inkompatibel.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-29)
+- **`PROTOTYPE_03_V28` aktiv** — v27 als sauberes Backup, v28 ist aktiver Arbeitsstand.
+- **Servo-Bewegungen jetzt sanft** — `setMaxAcceleration(0.3f)` nur für **D1 horizontal** (nicht D2 vertikal!). D2 ohne Rampe: beim Hochfahren nach Pickup braucht D2 schnellen Stellantrieb — mit 0.3f/s Rampe und RAISE_LOOPS=30 (0.6s) hat D2 nur 0.18 Units bewegt statt 0.93 benötigter → Arm fuhr erst beim nächsten Balken hoch. Bug gefixt durch Entfernen von setMaxAcceleration auf D2.
+- **Ghost-Read-Fix implementiert (teilweise)** — `MAX_LINE_STEER = 1.2f`: maximale Radgeschwindigkeitsdifferenz in STATE_LINE_FOLLOW, STATE_COLOUR_ASSUMPTION, STATE_SMALL_FOLLOW, STATE_SMALL_COLOUR_ASSUMPTION geclampt. Verhindert scharfe Kurven bei Ghost-Reads (Farbkarten unter Sensorbalken). Gilt NICHT in STATE_FOLLOW/FOLLOW_1S (Intro) und STATE_COLOUR_DRIVE_PAST.
+- **Geschwindigkeitsprofil zwischen Balken** — Drei Phasen: A=Rampe 0→MAX_SPEED (1s, Geradeaus), B=Volle Geschwindigkeit Linienfolge (1s, FOLLOW_FULL_LOOPS=50), C=Cruise bei LINE_CRUISE_SCALE=0.5f (halbe Geschwindigkeit). **Problem: 0.5f zu langsam für Kurven → Linie verloren.** Nächste Session: LINE_CRUISE_SCALE erhöhen.
+- **Drehteller-Wackeln gefixt** — `ServoFeedback360` um `disable()`/`enable()` erweitert. Im Idle wird Bit-Bang-PWM komplett abgeschaltet. `serviceTray()` nach `isAtTarget()` → `stop()`+`disable()`. `trayMoveTo()` ruft `enable(0.5f)` vor Move.
+- **Schmallinien-Falsch-Dreh-Bug gefixt** — Assumption-Farbe wird bei Linientrigger durchgereicht (`m_action_color = m_assumption_color`).
+- **D2 Pickup-Tiefen ~12.5 mm tiefer** — `D2_DOWN_BLAU=0.28`, `D2_DOWN_GRUEN=0.07`.
+- **BLAU-Arm fährt 13 mm kürzer aus** — `D1_EXTENDED_BLAU=0.85f`, andere Farben 0.95f.
 
 ## Stack
 - Sprache: C++14
@@ -125,6 +125,9 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v27 (2026-04-28): SMALL_CROSSING_STOP Timeout** — SF360_TIMEOUT_LOOPS=250 (5 s) konsistent zu CROSSING_STOP eingebaut.
 - **v27 (2026-04-28): Pin-Schema von V23 übernommen** — Drahtzugliste-V10-Spec war zur ursprünglichen Hardware inkompatibel. Encoder M10=(PB_13,PA_6,PC_7), M11=(PA_9,PB_6,PB_7). ColorSensor S0=PA_4, S1=PB_0.
 - **TEST_PARALLAX_360 (2026-04-29): Targets 90°** — {90°, 180°, 270°, 0°}, N_TARGETS=4 (war 8×45°).
+- **v28 (2026-04-29): setMaxAcceleration NUR für D1** — D2 (vertikal) ohne Rampe. Grund: 0.3f/s Rampe braucht >3s für Hub 0.07→1.0, RAISE_LOOPS=30 (0.6s) reicht nicht → Arm fuhr erst beim nächsten Balken hoch.
+- **v28 (2026-04-29): MAX_LINE_STEER=1.2f** — Clamp auf Radgeschwindigkeitsdifferenz in allen Linienfolge-States (LINE_FOLLOW, COLOUR_ASSUMPTION, SMALL_FOLLOW, SMALL_COLOUR_ASSUMPTION). Ghost-Reads erzeugen bis 3.2 RPS Diff → capped auf 1.2 = ~200mm Kurvenradius.
+- **v28 (2026-04-29): Dreiphasen-Geschwindigkeitsprofil** — Phase A: Rampe 0→MAX_SPEED (RESTART_ACCEL_LOOPS=50), Phase B: Volle Geschwindigkeit Linienfolge (FOLLOW_FULL_LOOPS=50), Phase C: Cruise bei LINE_CRUISE_SCALE (aktuell 0.5f, zu tief für Kurven → erhöhen auf 0.8f).
 - **v25 ist aktiver Arbeits-Zweig** (2026-04-28) — leeres Skeleton, bereit zum Befüllen. v24 = Kopie v23 als prototype03-Prefix (Backup). v23 = letzter getesteter Stand, unverändert.
 - **v23 war aktive Hauptversion** (2026-04-23 Session 2) — Kopie von v22. v22 bleibt als Backup unverändert, v21 ebenfalls
 - **v23 (2026-04-23 S2): Wait-for-Release-Entprellung für 360°-Endschalter-Click** — neue Statics `m_servo360_wait_release` + `m_servo360_release_ctr`. Nach jedem akzeptierten Click muss Pin 3 Loops lang `read()==1` liefern, sonst werden Prell-Impulse als Geister-Clicks gezählt. Brems-/Stopp-Logik unverändert
@@ -141,16 +144,17 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **v27 flashen (`pio run --target upload`) und Drehteller-Idle-Verhalten beobachten:** Nach Power-On ohne Button-Druck soll der Drehteller absolut **still stehen** (vorher: konstant hin-und-her). Wenn ja → den Roboter auf den Track stellen, Button drücken und einen kompletten Balken-Zyklus durchspielen. Konkret prüfen: (a) Drehteller dreht beim Stopp am breiten Balken auf den richtigen Slot und steht still; (b) PICKUP-Sequenz mit D1=0.95 (BLAU=0.85), D2=0.28/0.07 läuft sauber; (c) bei Schmallinie dreht der Drehteller auf den korrekten Farb-Slot (vorher 50/50-falsch). Wenn (a) immer noch wackelt: ggf. Pulse-Calibration im ServoFeedback360 nachjustieren oder hardware-PWM-Pin in Erwägung ziehen.
-2. **D2-Pickup-Tiefen physisch verifizieren:** GRÜN=0.07 / BLAU=0.28 sind jetzt sehr tief (~12.5 mm unter V23-Original). Falls Päckchen klemmen oder Magnet drückt → schrittweise +0.02 zurück. Faustregel ±0.01 Puls ≈ 1.3 mm.
-3. **DELIVER-Phase testen** (nach erfolgreicher PICKUP): Schmallinie-Erkennung, Ablage-Sequenz, Slot-Tracking (`m_slots[]` korrekt zurücksetzen).
+1. **`LINE_CRUISE_SCALE` in `prototype03_v28.cpp` von `0.5f` auf `0.8f` erhöhen, flashen und testen:** Roboter ist in den Kurven bei 0.5f zu langsam (Linie verloren). 0.8f = 80% MAX_SPEED = 1.28 RPS erlaubt Kurven bis ~250mm Radius. Falls Ghost-Reads bei 0.8f wieder auftreten → `MAX_LINE_STEER` von 1.2f auf 1.0f senken. Falls Kurven immer noch Probleme → `LINE_CRUISE_SCALE` auf 0.9f. Tuning-Ziel: schnellste Cruise-Geschwindigkeit ohne Ghost-Read-Ausbrecher.
+2. **Kompletten Balken-Zyklus durchspielen:** (a) Drehteller dreht auf richtigen Slot und steht still; (b) PICKUP-Sequenz D1=0.95 (BLAU=0.85), D2=0.28/0.07; (c) D2 fährt direkt nach Pickup hoch (Bug war gefixt); (d) Schmallinie dreht auf korrekten Farb-Slot.
+3. **DELIVER-Phase testen** (nach erfolgreicher PICKUP): Schmallinie-Erkennung, Ablage-Sequenz, Slot-Tracking.
 
 ## Offene Fragen
-- **Bit-Bang-Disable reicht?** Theorie: ohne PWM-Signal stoppt der Parallax 360. Falls er trotz `disable()` weiter driftet, muss der Stop-Puls präziser kalibriert werden (PULSE_CALIB_MIN/MAX in ServoFeedback360.h shiften) oder hardware-PWM auf einem TIM-fähigen Pin (PB_12 ist TIM1_BKIN, geht nicht).
-- **Drehteller-Jiggle-Abdeckung:** Mit AMPL=3° (statt 5°) und D1_JIGGLE_OFFSET=0.05f — reicht das noch für 1.5 cm² Flächenabdeckung? Erst nach erfolgreichem Pickup-Test relevant.
-- **D2-Pickup-Tiefen verifizieren:** 0.07 (GRÜN) und 0.28 (BLAU) sind sehr tief. Möglicherweise zu tief — physische Validierung steht aus.
-- **DELIVER-Phase ungetestet:** Schmallinie-Detection, COLOUR_STOP, DELIVER-Sequenz, Slot-Reset — alles noch nicht hardware-validiert.
-- **Angle Clamp 0.15 rad/Loop** (LineFollower) — noch nicht validiert.
+- **LINE_CRUISE_SCALE Tuning:** 0.5f = zu langsam für Kurven. Optimum zwischen Ghost-Read-Schutz und Kurven-Fähigkeit noch nicht gefunden. Startpunkt nächste Session: 0.8f.
+- **MAX_LINE_STEER Tuning:** 1.2f erlaubt Kurven bis ~200mm Radius. Falls Ghost-Reads bei höherem Cruise-Scale wieder auftreten → auf 1.0f oder 0.8f senken.
+- **Bit-Bang-Disable reicht?** Theorie: ohne PWM-Signal stoppt der Parallax 360. Falls er trotz `disable()` weiter driftet → PULSE_CALIB_MIN/MAX in ServoFeedback360.h nachjustieren.
+- **Drehteller-Jiggle-Abdeckung:** Mit AMPL=3° und D1_JIGGLE_OFFSET=0.05f — reicht das für 1.5 cm² Flächenabdeckung? Erst nach Pickup-Test relevant.
+- **D2-Pickup-Tiefen verifizieren:** 0.07 (GRÜN) und 0.28 (BLAU) — physische Validierung steht aus. Falls Päckchen klemmen → +0.02 zurück.
+- **DELIVER-Phase ungetestet:** Schmallinie-Detection, DELIVER-Sequenz, Slot-Reset.
 
 ## Session-Routine
 Am Ende jeder Session:

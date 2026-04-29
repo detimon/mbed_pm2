@@ -287,6 +287,13 @@
     #define TEST_RESET(led)   roboter_v27_reset(led)
     #define TEST_PRINT()      roboter_v27_print()
 
+#elif defined(PROTOTYPE_03_V28)
+    #include "prototype03_v28.h"
+    #define TEST_INIT(lps)    roboter_v28_init(lps)
+    #define TEST_TASK(led)    roboter_v28_task(led)
+    #define TEST_RESET(led)   roboter_v28_reset(led)
+    #define TEST_PRINT()      roboter_v28_print()
+
 #elif defined(TEST_DREHSERVO_90)
     #include "test_files/test_drehservo_90.h"
     #define TEST_INIT(lps)    drehservo_90_init(lps)
