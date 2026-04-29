@@ -90,22 +90,23 @@ static const int ROT_GELB_BRAKE_LOOPS = 12;
 // 180° servo positions (V23 verified)
 static const float D1_RETRACTED       = 0.0f;
 static const float D1_EXTENDED        = 0.95f;
+static const float D1_EXTENDED_BLAU   = 0.85f;  // BLAU fährt weniger weit aus (~13 mm kürzer)
 static const float D2_UP              = 1.0f;
 static const float D2_PARTIAL_DOWN    = 0.85f;     // ~10 mm
-static const float D2_DOWN_BLAU       = 0.38f;
-static const float D2_DOWN_GRUEN      = 0.22f;
+// Faustregel (v21): +0.01 Puls ≈ 1.3 mm. -0.10 Puls ≈ 12.5 mm tiefer (4 + 5 + 3.5).
+static const float D2_DOWN_BLAU       = 0.28f;   // war 0.38f → ~12.5 mm tiefer
+static const float D2_DOWN_GRUEN      = 0.07f;   // war 0.22f → ~12.5 mm tiefer
 
 // PICKUP / DELIVER timing
 static const int PICKUP_PHASE1_LOOPS = 30;   // 0.6 s — drehteller +50°
 static const int PICKUP_PHASE2_LOOPS = 25;   // 0.5 s — D2 partial down
 static const int PICKUP_PHASE3_LOOPS = 30;   // 0.6 s — drehteller back to target
 static const int PICKUP_PHASE4_LOOPS = 25;   // 0.5 s — D2 full down
-static const int JIGGLE_LOOPS        = 75;   // 1.5 s — 2D jiggle (one cycle)
+static const int JIGGLE_LOOPS        = 100;  // 2.0 s — 2D jiggle (one cycle, slower so PID settles each step)
 static const int RAISE_LOOPS         = 30;   // 0.6 s — arm back up + retract
 static const float PICKUP_OFFSET_DEG = 50.0f;
-static const float JIGGLE_AMPL_DEG   = 5.0f;
-static const float D1_JIGGLE_OUT     = 1.00f;
-static const float D1_JIGGLE_IN      = 0.90f;
+static const float JIGGLE_AMPL_DEG   = 3.0f;  // small swing — just outside SF360_TOL_DEG (2.1°)
+static const float D1_JIGGLE_OFFSET  = 0.05f; // horizontal arm jiggle around extensionForColor()
 
 // Sensor thresholds
 static const float SENSOR_THRESHOLD = 0.40f;
@@ -277,6 +278,12 @@ static float depthForColor(int c)
     return D2_DOWN_GRUEN;
 }
 
+// Horizontal arm extension. BLAU fährt weniger weit aus (mech. Sonderfall).
+static float extensionForColor(int c)
+{
+    return (c == 7) ? D1_EXTENDED_BLAU : D1_EXTENDED;
+}
+
 // Compute centroid line-follower step using the mount-cross convention:
 //   M10 (right) ← getLeftWheelVelocity()
 //   M11 (left)  ← getRightWheelVelocity()
@@ -359,8 +366,11 @@ static void pollColorAtStandstill()
 // Set a new tray target and start the P-controller (mirrors TEST_PARALLAX_360
 // MOVING state). Use this everywhere instead of g_servoTray->moveToAngle()
 // so serviceTray() knows to call update() instead of stop().
+// Re-enables the bit-bang PWM (it gets disabled at idle to prevent ISR-jitter
+// from making the Parallax 360 wobble).
 static void trayMoveTo(float deg)
 {
+    g_servoTray->enable(0.5f);          // wake bit-bang PWM at stop pulse
     g_servoTray->moveToAngle(deg);
     m_tray_moving = true;
 }
@@ -409,10 +419,14 @@ static void updateUserLed(DigitalOut& led)
     }
 }
 
-// Drive the tray feedback loop — mirrors TEST_PARALLAX_360's warmup/moving pattern:
-//   warmup: stop() until feedback valid (no premature movement).
-//   moving: update() until isAtTarget() → stop() and wait (no jiggle at rest).
-//   stopped: stop() every loop; trayMoveTo() restarts movement.
+// Drive the tray feedback loop — mirrors TEST_PARALLAX_360's warmup/moving pattern,
+// but with an extra step: bit-bang PWM is fully disabled at rest so that ISR
+// contention from the other threads (encoders, PwmIn × 2, NeoPixel, …) cannot
+// jitter the stop pulse and slowly drift the Parallax 360.
+//   warmup: stop() until feedback valid; once ready → disable() + idle.
+//   moving: update() until isAtTarget() → stop() + disable() and idle.
+//   idle:   bit-bang PWM is OFF — DigitalOut LOW, no signal, servo stays still.
+//           trayMoveTo() re-enables the PWM with a stop pulse.
 static void serviceTray()
 {
     if (!g_servoTray) return;
@@ -422,16 +436,18 @@ static void serviceTray()
         if (m_sf360_warmup_ctr >= SF360_WARMUP_LOOPS &&
             g_servoTray->isFeedbackValid()) {
             m_sf360_ready = true;
+            g_servoTray->disable();   // power down bit-bang once warmup is over
         }
         return;
     }
     if (!m_tray_moving) {
-        g_servoTray->stop();
+        // Servo is already disabled — leave it that way (no PWM = no wobble).
         return;
     }
     g_servoTray->update();
     if (g_servoTray->isAtTarget()) {
-        g_servoTray->stop();
+        g_servoTray->stop();          // final 1500 µs pulse, queued by bit-bang
+        g_servoTray->disable();       // then cut PWM entirely
         m_tray_moving = false;
     }
 }
@@ -537,7 +553,7 @@ static bool runPickupPhase()
     // Phase 0 — extend horizontal arm fully, tray to +50°.
     if (m_phase_idx == 0) {
         if (m_phase_ctr == 0) {
-            g_servoHoriz->enable(D1_EXTENDED);
+            g_servoHoriz->enable(extensionForColor(m_action_color));
             g_servoVert ->enable(D2_UP);
             trayMoveTo(m_target_angle + PICKUP_OFFSET_DEG);
         }
@@ -588,23 +604,24 @@ static bool runPickupPhase()
         return false;
     }
 
-    // Phase 4 — 2-D jiggle: tray ±5°, horizontal ±5%.
+    // Phase 4 — 2-D jiggle: tray ±JIGGLE_AMPL_DEG, horizontal ±D1_JIGGLE_OFFSET around base.
     if (m_phase_idx == 4) {
-        const int q = JIGGLE_LOOPS / 4;
+        const int   q    = JIGGLE_LOOPS / 4;
+        const float base = extensionForColor(m_action_color);
         int qi = m_phase_ctr / q;
         if (m_phase_ctr % q == 0) {
             if (qi == 0) {
                 trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
-                g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
+                g_servoHoriz->setPulseWidth(base + D1_JIGGLE_OFFSET);
             } else if (qi == 1) {
                 trayMoveTo(m_target_angle - JIGGLE_AMPL_DEG);
-                g_servoHoriz->setPulseWidth(D1_JIGGLE_IN);
+                g_servoHoriz->setPulseWidth(base - D1_JIGGLE_OFFSET);
             } else if (qi == 2) {
                 trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
-                g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
+                g_servoHoriz->setPulseWidth(base + D1_JIGGLE_OFFSET);
             } else {
                 trayMoveTo(m_target_angle);
-                g_servoHoriz->setPulseWidth(D1_EXTENDED);
+                g_servoHoriz->setPulseWidth(base);
             }
         }
         m_phase_ctr++;
@@ -640,7 +657,7 @@ static bool runDeliverPhase()
     // Phase 0 — extend horizontal, lower vertical to deliver depth.
     if (m_phase_idx == 0) {
         if (m_phase_ctr == 0) {
-            g_servoHoriz->enable(D1_EXTENDED);
+            g_servoHoriz->enable(extensionForColor(m_action_color));
             g_servoVert ->enable(depthForColor(m_action_color));
             trayMoveTo(m_target_angle);
         }
@@ -654,21 +671,22 @@ static bool runDeliverPhase()
 
     // Phase 1 — 2-D jiggle (identical to pickup).
     if (m_phase_idx == 1) {
-        const int q = JIGGLE_LOOPS / 4;
+        const int   q    = JIGGLE_LOOPS / 4;
+        const float base = extensionForColor(m_action_color);
         int qi = m_phase_ctr / q;
         if (m_phase_ctr % q == 0) {
             if (qi == 0) {
                 trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
-                g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
+                g_servoHoriz->setPulseWidth(base + D1_JIGGLE_OFFSET);
             } else if (qi == 1) {
                 trayMoveTo(m_target_angle - JIGGLE_AMPL_DEG);
-                g_servoHoriz->setPulseWidth(D1_JIGGLE_IN);
+                g_servoHoriz->setPulseWidth(base - D1_JIGGLE_OFFSET);
             } else if (qi == 2) {
                 trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
-                g_servoHoriz->setPulseWidth(D1_JIGGLE_OUT);
+                g_servoHoriz->setPulseWidth(base + D1_JIGGLE_OFFSET);
             } else {
                 trayMoveTo(m_target_angle);
-                g_servoHoriz->setPulseWidth(D1_EXTENDED);
+                g_servoHoriz->setPulseWidth(base);
             }
         }
         m_phase_ctr++;
@@ -1028,7 +1046,11 @@ void roboter_v27_task(DigitalOut& led)
                 stopMotors();
                 m_small_crossings_left--;
                 m_small_crossing_ctr = CROSSING_STOP_LOOPS;
-                m_action_color   = 0;
+                // Assumption-Farbe durchreichen: Farbsensor steht beim Linientrigger
+                // bereits HINTER der Linie über der nächsten Karte → Standstill-Read
+                // ist unzuverlässig. Wenn die Vor-Rotation gefeuert hat, der Wert
+                // ist verlässlich. Sonst CROSSING_STOP versucht einen frischen Read.
+                m_action_color   = m_assumption_set ? m_assumption_color : 0;
                 m_color_pending  = 0;
                 m_color_stable   = 0;
                 m_assumption_set = false;
@@ -1044,9 +1066,11 @@ void roboter_v27_task(DigitalOut& led)
                 stopMotors();
                 m_small_crossings_left--;
                 m_small_crossing_ctr = CROSSING_STOP_LOOPS;
-                m_action_color   = 0;
+                // Hier sind wir per Definition mit gesetzter Assumption-Farbe drin.
+                m_action_color   = m_assumption_color;
                 m_color_pending  = 0;
                 m_color_stable   = 0;
+                m_assumption_set = false;
                 m_state = STATE_SMALL_CROSSING_STOP;
             } else if (g_servoTray->isAtTarget()) {
                 m_assumption_set = false;
@@ -1063,25 +1087,34 @@ void roboter_v27_task(DigitalOut& led)
             } else if (m_small_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 if (m_action_color == 0) m_action_color = m_color_fallback;
                 dispatchOnColor(m_action_color, true);
+                m_tray_timeout_ctr = 0;
             }
 
             m_small_crossing_ctr--;
-            if (m_small_crossing_ctr <= 0 && g_servoTray->isAtTarget()) {
-                m_slowing       = false;
-                m_slow_ctr      = 0;
-                m_color_delay_ctr = COLOR_READ_DELAY;
-                m_color_pending = 0;
-                m_color_stable  = 0;
-                m_phase_idx     = 0;
-                m_phase_ctr     = 0;
 
-                if (m_needs_drive_past) {
-                    m_drive_past_ctr = 0;
-                    g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
-                    g_lf->setMaxWheelVelocity(MAX_SPEED);
-                    m_state = STATE_COLOUR_DRIVE_PAST;
-                } else {
-                    m_state = STATE_DELIVER;
+            // Same tray-wait pattern as STATE_CROSSING_STOP (5 s timeout fallback).
+            if (m_small_crossing_ctr <= 0) {
+                m_tray_timeout_ctr++;
+                bool tray_ok = g_servoTray->isAtTarget() ||
+                               m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
+                if (tray_ok) {
+                    m_slowing          = false;
+                    m_slow_ctr         = 0;
+                    m_color_delay_ctr  = COLOR_READ_DELAY;
+                    m_color_pending    = 0;
+                    m_color_stable     = 0;
+                    m_phase_idx        = 0;
+                    m_phase_ctr        = 0;
+                    m_tray_timeout_ctr = 0;
+
+                    if (m_needs_drive_past) {
+                        m_drive_past_ctr = 0;
+                        g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
+                        g_lf->setMaxWheelVelocity(MAX_SPEED);
+                        m_state = STATE_COLOUR_DRIVE_PAST;
+                    } else {
+                        m_state = STATE_DELIVER;
+                    }
                 }
             }
             break;

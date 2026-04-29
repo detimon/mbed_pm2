@@ -73,6 +73,21 @@ public:
     /** @brief Command speed 0 immediately without changing target. */
     void stop();
 
+    /**
+     * @brief Cut the underlying bit-bang PWM entirely (DigitalOut held LOW).
+     *        Use when the servo should be physically idle — eliminates any
+     *        pulse-width jitter that ISR contention would otherwise cause.
+     *        The Parallax 360° servo stops drawing torque without an input pulse.
+     */
+    void disable();
+
+    /**
+     * @brief Re-enable the bit-bang PWM at the given pulse (default = stop pulse).
+     *        Counterpart to disable(); call before update() / moveToAngle().
+     * @param pulse Normalised pulse [0,1] (0.5 = 1500 µs = stop).
+     */
+    void enable(float pulse = 0.5f);
+
 private:
     void setServoSpeed(float speed);
 

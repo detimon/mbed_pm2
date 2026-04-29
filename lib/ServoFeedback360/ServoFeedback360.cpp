@@ -82,6 +82,17 @@ void ServoFeedback360::stop()
     setServoSpeed(0.0f);
 }
 
+void ServoFeedback360::disable()
+{
+    m_speed = 0.0f;
+    m_servo.disable();
+}
+
+void ServoFeedback360::enable(float pulse)
+{
+    m_servo.enable(pulse);
+}
+
 void ServoFeedback360::setServoSpeed(float speed)
 {
     // Map speed [-1, +1] to normalized pulse [0, 1]:
