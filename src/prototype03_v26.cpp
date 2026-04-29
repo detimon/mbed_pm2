@@ -1,12 +1,12 @@
-// CargoSweep — PROTOTYPE_04_V25
+// CargoSweep — PROTOTYPE_03_V26
 // Clean rewrite. Uses ServoFeedback360 (Parallax 360°) instead of mechanical
 // endstop + bit-bang servo. State machine has 20 states across the intro
 // sequence, the wide-bar pickup phase and the narrow-line delivery phase.
 #include "test_config.h"
 
-#ifdef PROTOTYPE_04_V25
+#ifdef PROTOTYPE_03_V26
 
-#include "prototype04_v25.h"
+#include "prototype03_v26.h"
 #include "ColorSensor.h"
 #include "DCMotor.h"
 #include "LineFollower.h"
@@ -417,7 +417,7 @@ static void serviceTray()
 // ===========================================================================
 // Public API
 // ===========================================================================
-void roboter_v25_init(int /*loops_per_second*/)
+void roboter_v26_init(int /*loops_per_second*/)
 {
     // Motors — pin assignment per Drahtzugliste V10.
     static DCMotor motor_M10(PB_13, PB_6, PB_7, GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -675,7 +675,7 @@ static bool runDeliverPhase()
 // ---------------------------------------------------------------------------
 // Main task — 50 Hz tick.
 // ---------------------------------------------------------------------------
-void roboter_v25_task(DigitalOut& led)
+void roboter_v26_task(DigitalOut& led)
 {
     // 1. Sample colour, update NeoPixel + LED bookkeeping.
     m_current_color = g_cs->getColor();
@@ -1076,7 +1076,7 @@ void roboter_v25_task(DigitalOut& led)
     }
 }
 
-void roboter_v25_reset(DigitalOut& led)
+void roboter_v26_reset(DigitalOut& led)
 {
     if (g_en) *g_en = 0;
     if (g_M10) g_M10->setVelocity(0.0f);
@@ -1116,7 +1116,7 @@ void roboter_v25_reset(DigitalOut& led)
     led = 0;
 }
 
-void roboter_v25_print()
+void roboter_v26_print()
 {
     static int print_ctr = 0;
     if (++print_ctr < 10) return;   // ~5 Hz
@@ -1159,4 +1159,4 @@ void roboter_v25_print()
            m_small_crossings_left);
 }
 
-#endif // PROTOTYPE_04_V25
+#endif // PROTOTYPE_03_V26
