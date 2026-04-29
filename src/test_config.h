@@ -29,7 +29,8 @@
 // #define PROTOTYPE_02_V23
 // #define PROTOTYPE_03_V24
 // #define PROTOTYPE_03_V25
-#define PROTOTYPE_03_V26
+// #define PROTOTYPE_03_V26
+#define PROTOTYPE_03_V27
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
 // #define TEST_COLOR_SENSOR
