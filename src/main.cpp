@@ -294,6 +294,24 @@
     #define TEST_RESET(led)   roboter_v28_reset(led)
     #define TEST_PRINT()      roboter_v28_print()
 
+#elif defined(TEST_LOGIC_ARM_STANDARD)
+    #include "test_files/test_logic_arm_standard.h"
+    #define TEST_INIT(lps)    logic_arm_standard_init(lps)
+    #define TEST_TASK(led)    logic_arm_standard_task(led)
+    #define TEST_RESET(led)   logic_arm_standard_reset(led)
+    #define TEST_PRINT()      logic_arm_standard_print()
+
+#elif defined(TEST_ARM_SEQUENCE)
+    // Single-File-Test: Forward-Deklarationen (kein .h)
+    void test_arm_sequence_init(int);
+    void test_arm_sequence_task(DigitalOut&);
+    void test_arm_sequence_reset(DigitalOut&);
+    void test_arm_sequence_print();
+    #define TEST_INIT(lps)    test_arm_sequence_init(lps)
+    #define TEST_TASK(led)    test_arm_sequence_task(led)
+    #define TEST_RESET(led)   test_arm_sequence_reset(led)
+    #define TEST_PRINT()      test_arm_sequence_print()
+
 #elif defined(TEST_DREHSERVO_90)
     #include "test_files/test_drehservo_90.h"
     #define TEST_INIT(lps)    drehservo_90_init(lps)

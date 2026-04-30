@@ -32,12 +32,16 @@
 // #define PROTOTYPE_03_V25
 // #define PROTOTYPE_03_V26
 // #define PROTOTYPE_03_V27
-#define PROTOTYPE_03_V28
+// #define PROTOTYPE_03_V28
 
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
 // #define TEST_COLOR_SENSOR
 // #define TEST_COLOR_SENSOR_CALIB
+
+// --- Logic Tests ---
+// #define TEST_LOGIC_ARM_STANDARD
+#define TEST_ARM_SEQUENCE
 
 // --- Hardware Tests ---
 // #define TEST_SERVO

@@ -1,15 +1,12 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-29)
-- **`PROTOTYPE_03_V28` aktiv** — v27 als sauberes Backup, v28 ist aktiver Arbeitsstand.
-- **Servo-Bewegungen jetzt sanft** — `setMaxAcceleration(0.3f)` nur für **D1 horizontal** (nicht D2 vertikal!). D2 ohne Rampe: beim Hochfahren nach Pickup braucht D2 schnellen Stellantrieb — mit 0.3f/s Rampe und RAISE_LOOPS=30 (0.6s) hat D2 nur 0.18 Units bewegt statt 0.93 benötigter → Arm fuhr erst beim nächsten Balken hoch. Bug gefixt durch Entfernen von setMaxAcceleration auf D2.
-- **Ghost-Read-Fix implementiert (teilweise)** — `MAX_LINE_STEER = 1.2f`: maximale Radgeschwindigkeitsdifferenz in STATE_LINE_FOLLOW, STATE_COLOUR_ASSUMPTION, STATE_SMALL_FOLLOW, STATE_SMALL_COLOUR_ASSUMPTION geclampt. Verhindert scharfe Kurven bei Ghost-Reads (Farbkarten unter Sensorbalken). Gilt NICHT in STATE_FOLLOW/FOLLOW_1S (Intro) und STATE_COLOUR_DRIVE_PAST.
-- **Geschwindigkeitsprofil zwischen Balken** — Drei Phasen: A=Rampe 0→MAX_SPEED (1s, Geradeaus), B=Volle Geschwindigkeit Linienfolge (1s, FOLLOW_FULL_LOOPS=50), C=Cruise bei LINE_CRUISE_SCALE=0.5f (halbe Geschwindigkeit). **Problem: 0.5f zu langsam für Kurven → Linie verloren.** Nächste Session: LINE_CRUISE_SCALE erhöhen.
-- **Drehteller-Wackeln gefixt** — `ServoFeedback360` um `disable()`/`enable()` erweitert. Im Idle wird Bit-Bang-PWM komplett abgeschaltet. `serviceTray()` nach `isAtTarget()` → `stop()`+`disable()`. `trayMoveTo()` ruft `enable(0.5f)` vor Move.
-- **Schmallinien-Falsch-Dreh-Bug gefixt** — Assumption-Farbe wird bei Linientrigger durchgereicht (`m_action_color = m_assumption_color`).
-- **D2 Pickup-Tiefen ~12.5 mm tiefer** — `D2_DOWN_BLAU=0.28`, `D2_DOWN_GRUEN=0.07`.
-- **BLAU-Arm fährt 13 mm kürzer aus** — `D1_EXTENDED_BLAU=0.85f`, andere Farben 0.95f.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-30)
+- **`TEST_ARM_SEQUENCE` aktiv** — 10-Schritt Arm-Isolationstest läuft auf Hardware. `PROTOTYPE_03_V28` ist auskommentiert (steht bereit, nicht verändert).
+- **TEST_ARM_SEQUENCE funktioniert** (`src/test_files/test_arm_sequence.cpp`, Single-File ohne .h): Knopf 1 → Sequenz startet (S1 läuft), Knopf 2 → Stop + Reset auf S1, Knopf 3 → Sequenz startet erneut. Sequenz: S1 Tray→0°, S2 Tray+30°, S3 M20→0.95 ausfahren, S4 M21→0.85 (10mm), S5 Tray+330° CW (2×165° Substeps), S6 M21→0.28 (voll), S7 Jiggle ±10° 1s, S8 Tray→45°, S9 Jiggle ±5°+M20±0.05 1.5s, S10 Arm hoch + Ende.
+- **Arm-Parameter aus V27 übernommen** — kein `setMaxAcceleration` auf M20 (war v28-Bug: 0.3f/s macht Arm zu langsam), SF360: KP=0.005, TOL=2.1°, OFFSET=70°, alle V27-Positionswerte.
+- **Button-Erkenntnis** — Test-Module dürfen `BUTTON1` NICHT direkt lesen: `main.cpp`-`DebounceIn`-ISR interceptiert jeden Knopfdruck und toggled `do_execute_main_task`. `_reset()` wird bei Stop-Knopf aufgerufen; `_task()` läuft nur wenn `do_execute_main_task=true`.
+- **v28 steht bereit** (LINE_CRUISE_SCALE=0.5f — noch zu testen mit 0.8f). Ghost-Read-Fix (MAX_LINE_STEER=1.2f) + Dreiphasen-Profil implementiert. Nächster Schritt: LINE_CRUISE_SCALE auf 0.8f setzen und Fahrtest machen.
 
 ## Stack
 - Sprache: C++14
@@ -128,6 +125,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v28 (2026-04-29): setMaxAcceleration NUR für D1** — D2 (vertikal) ohne Rampe. Grund: 0.3f/s Rampe braucht >3s für Hub 0.07→1.0, RAISE_LOOPS=30 (0.6s) reicht nicht → Arm fuhr erst beim nächsten Balken hoch.
 - **v28 (2026-04-29): MAX_LINE_STEER=1.2f** — Clamp auf Radgeschwindigkeitsdifferenz in allen Linienfolge-States (LINE_FOLLOW, COLOUR_ASSUMPTION, SMALL_FOLLOW, SMALL_COLOUR_ASSUMPTION). Ghost-Reads erzeugen bis 3.2 RPS Diff → capped auf 1.2 = ~200mm Kurvenradius.
 - **v28 (2026-04-29): Dreiphasen-Geschwindigkeitsprofil** — Phase A: Rampe 0→MAX_SPEED (RESTART_ACCEL_LOOPS=50), Phase B: Volle Geschwindigkeit Linienfolge (FOLLOW_FULL_LOOPS=50), Phase C: Cruise bei LINE_CRUISE_SCALE (aktuell 0.5f, zu tief für Kurven → erhöhen auf 0.8f).
+- **TEST_ARM_SEQUENCE (2026-04-30): Arm-Isolationstest** — `src/test_files/test_arm_sequence.cpp`, Single-File ohne .h. 10 Schritte: Homing→Tray+30°→M20 ausfahren→M21 partial→Tray+330° CW→M21 voll→Jiggle ±10°→Tray 45°→Jiggle ±5°→Arm hoch. Button-Logik: Knopf1=Start, Knopf2=Stop+Reset auf S1, Knopf3=Start erneut. Kein setMaxAcceleration auf M20 (V27-Werte). Tray +330° als 2×165° Substeps (verhindert 180°-Ambiguität bei shortest-path-Berechnung).
+- **Button-Pattern (2026-04-30):** Test-Module dürfen `BUTTON1` nicht direkt lesen — `main.cpp`-DebounceIn-ISR interceptiert. `_task()` läuft nur wenn `do_execute_main_task=true` (ungerade Knöpfe). `_reset()` wird bei geraden Knöpfen aufgerufen. `while(1)` in `_task()` blockiert main-Loop → stattdessen SEQ_DONE-State verwenden.
 - **v25 ist aktiver Arbeits-Zweig** (2026-04-28) — leeres Skeleton, bereit zum Befüllen. v24 = Kopie v23 als prototype03-Prefix (Backup). v23 = letzter getesteter Stand, unverändert.
 - **v23 war aktive Hauptversion** (2026-04-23 Session 2) — Kopie von v22. v22 bleibt als Backup unverändert, v21 ebenfalls
 - **v23 (2026-04-23 S2): Wait-for-Release-Entprellung für 360°-Endschalter-Click** — neue Statics `m_servo360_wait_release` + `m_servo360_release_ctr`. Nach jedem akzeptierten Click muss Pin 3 Loops lang `read()==1` liefern, sonst werden Prell-Impulse als Geister-Clicks gezählt. Brems-/Stopp-Logik unverändert
@@ -144,17 +143,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **`LINE_CRUISE_SCALE` in `prototype03_v28.cpp` von `0.5f` auf `0.8f` erhöhen, flashen und testen:** Roboter ist in den Kurven bei 0.5f zu langsam (Linie verloren). 0.8f = 80% MAX_SPEED = 1.28 RPS erlaubt Kurven bis ~250mm Radius. Falls Ghost-Reads bei 0.8f wieder auftreten → `MAX_LINE_STEER` von 1.2f auf 1.0f senken. Falls Kurven immer noch Probleme → `LINE_CRUISE_SCALE` auf 0.9f. Tuning-Ziel: schnellste Cruise-Geschwindigkeit ohne Ghost-Read-Ausbrecher.
-2. **Kompletten Balken-Zyklus durchspielen:** (a) Drehteller dreht auf richtigen Slot und steht still; (b) PICKUP-Sequenz D1=0.95 (BLAU=0.85), D2=0.28/0.07; (c) D2 fährt direkt nach Pickup hoch (Bug war gefixt); (d) Schmallinie dreht auf korrekten Farb-Slot.
-3. **DELIVER-Phase testen** (nach erfolgreicher PICKUP): Schmallinie-Erkennung, Ablage-Sequenz, Slot-Tracking.
+1. **`PROTOTYPE_03_V28` in `test_config.h` aktivieren (TEST_ARM_SEQUENCE auskommentieren), `LINE_CRUISE_SCALE` in `prototype03_v28.cpp` von `0.5f` auf `0.8f` setzen, flashen und Fahrtest machen:** Roboter verliert bei 0.5f die Linie in Kurven. 0.8f = 1.28 RPS. Falls Ghost-Reads zurückkehren → `MAX_LINE_STEER` von 1.2f auf 1.0f. Falls Kurven noch Problem → auf 0.9f. Parallel beobachten: läuft Pickup-Sequenz (D1/D2/Drehteller) korrekt durch?
+2. **TEST_ARM_SEQUENCE physisch validieren:** Überprüfen ob Drehteller-Winkel (30°, 45°) und Arm-Tiefen (0.85, 0.28) mechanisch stimmen. Falls D2_FULL_DOWN=0.28 nicht tief genug → auf 0.25 senken. Falls Drehteller um 45° dreht aber falsch ausgerichtet → SF360_OFFSET anpassen (aktuell 70°).
+3. **DELIVER-Phase in v28 implementieren** — erst nach validiertem Pickup.
 
 ## Offene Fragen
-- **LINE_CRUISE_SCALE Tuning:** 0.5f = zu langsam für Kurven. Optimum zwischen Ghost-Read-Schutz und Kurven-Fähigkeit noch nicht gefunden. Startpunkt nächste Session: 0.8f.
-- **MAX_LINE_STEER Tuning:** 1.2f erlaubt Kurven bis ~200mm Radius. Falls Ghost-Reads bei höherem Cruise-Scale wieder auftreten → auf 1.0f oder 0.8f senken.
-- **Bit-Bang-Disable reicht?** Theorie: ohne PWM-Signal stoppt der Parallax 360. Falls er trotz `disable()` weiter driftet → PULSE_CALIB_MIN/MAX in ServoFeedback360.h nachjustieren.
-- **Drehteller-Jiggle-Abdeckung:** Mit AMPL=3° und D1_JIGGLE_OFFSET=0.05f — reicht das für 1.5 cm² Flächenabdeckung? Erst nach Pickup-Test relevant.
-- **D2-Pickup-Tiefen verifizieren:** 0.07 (GRÜN) und 0.28 (BLAU) — physische Validierung steht aus. Falls Päckchen klemmen → +0.02 zurück.
-- **DELIVER-Phase ungetestet:** Schmallinie-Detection, DELIVER-Sequenz, Slot-Reset.
+- **LINE_CRUISE_SCALE Tuning:** 0.5f = zu langsam für Kurven. Startpunkt nächste Session: 0.8f. Ziel: schnellste Cruise-Speed ohne Ghost-Read-Ausbrecher.
+- **MAX_LINE_STEER Tuning:** 1.2f = ~200mm Mindest-Kurvenradius. Falls Ghost-Reads bei 0.8f wieder auftreten → auf 1.0f.
+- **TEST_ARM_SEQUENCE Pickup-Tiefen physisch validiert?** D2_FULL_DOWN=0.28 (BLAU-Tiefe aus V27) und D2_PARTIAL_DOWN=0.85 noch nicht auf neuer Hardware verifiziert.
+- **Drehteller-Winkel korrekt?** SF360_OFFSET=70° aus V27 — ob 0°, 30°, 45° mit aktueller Mechanik übereinstimmen ist unbekannt.
+- **DELIVER-Phase ungetestet:** Schmallinie-Detection, Ablage-Sequenz, Slot-Reset.
 
 ## Session-Routine
 Am Ende jeder Session:
