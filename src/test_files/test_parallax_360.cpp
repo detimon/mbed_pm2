@@ -42,7 +42,7 @@ static const float MIN_SPEED = 0.01f;
 // Korrigiert eine mechanische Verschiebung zwischen Sensor-Nullpunkt und
 // gewünschtem Nullpunkt. Falls der Servo systematisch zu weit dreht → positiv.
 // Falls er zu wenig dreht → negativ. In 5°-Schritten testen.
-static const float ANGLE_OFFSET = 70.0f;
+static const float ANGLE_OFFSET = 10.0f;
 
 // --- Zielsequenz -----------------------------------------------------------
 // Winkel die nacheinander angefahren werden (in Grad, 0–360).

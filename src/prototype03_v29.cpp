@@ -1,13 +1,13 @@
-// CargoSweep — PROTOTYPE_03_V28
+// CargoSweep — PROTOTYPE_03_V29
 // Clean rewrite. Uses ServoFeedback360 (Parallax 360°) instead of mechanical
 // endstop + bit-bang servo. State machine has 20 states across the intro
 // sequence, the wide-bar pickup phase and the narrow-line delivery phase.
 // Servo smooth movement via setMaxAcceleration(0.3f).
 #include "test_config.h"
 
-#ifdef PROTOTYPE_03_V28
+#ifdef PROTOTYPE_03_V29
 
-#include "prototype03_v28.h"
+#include "prototype03_v29.h"
 #include "ColorSensor.h"
 #include "DCMotor.h"
 #include "LineFollower.h"
@@ -79,9 +79,8 @@ static const int   COLOR_STABLE_CNT        = 3;    // driving stable count (60 m
 static const int   COLOR_STOP_STABLE_CNT   = 3;    // standstill stable count
 static const int   COLOR_READ_DELAY        = 50;   // 1.0 s sensor lockout after restart
 static const int   SLOWDOWN_LOOPS          = 13;
-static const float SLOW_FACTOR             = 0.2f;
-static const int   FOLLOW_FULL_LOOPS       = 50;   // 1 s at MAX_SPEED before cruise
-static const float LINE_CRUISE_SCALE       = 0.5f; // cruise speed fraction — reduces ghost-read impact
+static const float LINE_CRUISE_SCALE       = 0.5f; // Cruise-Geschwindigkeit (Normalfahrt)
+static const float LINE_BOOST_SCALE        = LINE_CRUISE_SCALE * 1.3f; // +30% nach Balken-Start
 static const int   SMALL_FOLLOW_START_GUARD = static_cast<int>(781 * SPEED_SCALE);
 static const int   SMALL_REENTRY_GUARD      = static_cast<int>(100 * SPEED_SCALE);
 
@@ -354,15 +353,15 @@ static void pollColorWhileDriving()
     }
 }
 
-// 1.0 → SLOW_FACTOR slow-ramp once m_slowing is true.
+// BOOST → CRUISE ramp once m_slowing is true (Farbunterschied erkannt).
 static float currentSlowRamp()
 {
-    if (!m_slowing) return 1.0f;
+    if (!m_slowing) return LINE_BOOST_SCALE;
     float t = (m_slow_ctr < SLOWDOWN_LOOPS)
                   ? static_cast<float>(m_slow_ctr) / static_cast<float>(SLOWDOWN_LOOPS)
                   : 1.0f;
     if (m_slow_ctr < SLOWDOWN_LOOPS) m_slow_ctr++;
-    return 1.0f - t * (1.0f - SLOW_FACTOR);
+    return LINE_BOOST_SCALE + t * (LINE_CRUISE_SCALE - LINE_BOOST_SCALE);
 }
 
 // Read colour at standstill — confirm m_action_color.
@@ -472,7 +471,7 @@ static void serviceTray()
 // ===========================================================================
 // Public API
 // ===========================================================================
-void roboter_v28_init(int /*loops_per_second*/)
+void roboter_v29_init(int /*loops_per_second*/)
 {
     // Motors — pin assignment per Drahtzugliste V10.
     static DCMotor motor_M10(PB_13, PA_6, PC_7, GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -746,7 +745,7 @@ static bool runDeliverPhase()
 // ---------------------------------------------------------------------------
 // Main task — 50 Hz tick.
 // ---------------------------------------------------------------------------
-void roboter_v28_task(DigitalOut& led)
+void roboter_v29_task(DigitalOut& led)
 {
     // 1. Sample colour, update NeoPixel + LED bookkeeping.
     m_current_color = g_cs->getColor();
@@ -902,23 +901,15 @@ void roboter_v28_task(DigitalOut& led)
             g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
 
             if (m_accel_ctr < RESTART_ACCEL_LOOPS) {
-                // Phase A: straight ramp 0 → MAX_SPEED (1 s)
+                // Phase A: gerade Anlauframpe 0 → LINE_BOOST_SCALE
                 float ramp = static_cast<float>(m_accel_ctr + 1) /
                              static_cast<float>(RESTART_ACCEL_LOOPS);
-                driveStraight(MAX_SPEED * ramp);
+                driveStraight(MAX_SPEED * LINE_BOOST_SCALE * ramp);
                 m_accel_ctr++;
             } else {
+                // Phase B: Linienfolge bei BOOST, rampiert auf CRUISE wenn Farbe erkannt
                 pollColorWhileDriving();
-                if (m_accel_ctr < RESTART_ACCEL_LOOPS + FOLLOW_FULL_LOOPS) {
-                    // Phase B: full speed line-follow (1 s)
-                    m_accel_ctr++;
-                    applyLineFollowSpeedClamped(currentSlowRamp());
-                } else {
-                    // Phase C: cruise — cap at LINE_CRUISE_SCALE
-                    float scale = currentSlowRamp();
-                    if (scale > LINE_CRUISE_SCALE) scale = LINE_CRUISE_SCALE;
-                    applyLineFollowSpeedClamped(scale);
-                }
+                applyLineFollowSpeedClamped(currentSlowRamp());
             }
 
             if (m_guard_ctr > 0) {
@@ -1062,23 +1053,15 @@ void roboter_v28_task(DigitalOut& led)
             g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
 
             if (m_accel_ctr < RESTART_ACCEL_LOOPS) {
-                // Phase A: straight ramp 0 → MAX_SPEED (1 s)
+                // Phase A: gerade Anlauframpe 0 → LINE_BOOST_SCALE
                 float ramp = static_cast<float>(m_accel_ctr + 1) /
                              static_cast<float>(RESTART_ACCEL_LOOPS);
-                driveStraight(MAX_SPEED * ramp);
+                driveStraight(MAX_SPEED * LINE_BOOST_SCALE * ramp);
                 m_accel_ctr++;
             } else {
+                // Phase B: Linienfolge bei BOOST, rampiert auf CRUISE wenn Farbe erkannt
                 pollColorWhileDriving();
-                if (m_accel_ctr < RESTART_ACCEL_LOOPS + FOLLOW_FULL_LOOPS) {
-                    // Phase B: full speed line-follow (1 s)
-                    m_accel_ctr++;
-                    applyLineFollowSpeedClamped(currentSlowRamp());
-                } else {
-                    // Phase C: cruise — cap at LINE_CRUISE_SCALE
-                    float scale = currentSlowRamp();
-                    if (scale > LINE_CRUISE_SCALE) scale = LINE_CRUISE_SCALE;
-                    applyLineFollowSpeedClamped(scale);
-                }
+                applyLineFollowSpeedClamped(currentSlowRamp());
             }
 
             if (m_guard_ctr > 0) {
@@ -1194,7 +1177,7 @@ void roboter_v28_task(DigitalOut& led)
     }
 }
 
-void roboter_v28_reset(DigitalOut& led)
+void roboter_v29_reset(DigitalOut& led)
 {
     if (g_en) *g_en = 0;
     if (g_M10) g_M10->setVelocity(0.0f);
@@ -1234,7 +1217,7 @@ void roboter_v28_reset(DigitalOut& led)
     led = 0;
 }
 
-void roboter_v28_print()
+void roboter_v29_print()
 {
     static int print_ctr = 0;
     if (++print_ctr < 10) return;   // ~5 Hz
@@ -1277,4 +1260,4 @@ void roboter_v28_print()
            m_small_crossings_left);
 }
 
-#endif // PROTOTYPE_03_V28
+#endif // PROTOTYPE_03_V29

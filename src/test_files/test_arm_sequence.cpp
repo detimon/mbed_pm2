@@ -1,5 +1,5 @@
 // =============================================================================
-// test_arm_sequence.cpp — Isolierter Test der Aufpick-Sequenz (10 Schritte)
+// test_arm_sequence.cpp — Isolierter Test der Arm-Sequenz (8 Schritte)
 //
 // Hardware (Drahtzugliste V10):
 //   M21 (180° vertikal):    PB_2  (D0)   — Servo-Klasse
@@ -9,9 +9,8 @@
 //   Button: BUTTON1 — via main.cpp DebounceIn (50ms intern)
 //
 // Werte und Ansteuerungs-Pattern 1:1 aus prototype03_v27.cpp übernommen:
-//   - Servo-Kalibrierung, Positionswerte, KEIN setMaxAcceleration
-//   - SF360_OFFSET=70°, KP=0.005, TOL=2.1° (V27 unverändert)
-//   - Drehrichtung über moveToAngle() — wie V27 (kürzester Weg, +330° als 2 Substeps)
+//   - Servo-Kalibrierung, KEIN setMaxAcceleration
+//   - SF360_OFFSET=110°, KP=0.005, TOL=2.1°
 // =============================================================================
 
 #include "test_config.h"
@@ -29,13 +28,13 @@ void test_arm_sequence_reset(DigitalOut& led);
 void test_arm_sequence_print();
 
 // =============================================================================
-// SERVO-WERTE — exakt aus prototype03_v27.cpp (Zeile 91-98, 487-488)
+// SERVO-WERTE
 // =============================================================================
-static const float D1_RETRACTED      = 0.0f;
-static const float D1_EXTENDED       = 0.95f;
-static const float D2_UP             = 1.0f;
-static const float D2_PARTIAL_DOWN   = 0.85f;   // ~10 mm runter (Zwischenposition)
-static const float D2_FULL_DOWN      = 0.28f;   // SERVO_D2_DOWN_BLAU (volle Pickup-Tiefe)
+static const float D1_RETRACTED    = 0.0f;
+static const float D1_EXTENDED_80  = 0.65f;   // 65% ausgefahren (Schritt 3)
+static const float D2_UP           = 1.0f;
+static const float D2_PARTIAL_DOWN = 0.50f;   // ~1.7 cm runter (Schritt 2)
+static const float D2_FULL_DOWN    = 0.28f;   // Pickup-Tiefe (Schritt 4)
 
 static const float D1_PULSE_MIN = 0.0500f;
 static const float D1_PULSE_MAX = 0.1050f;
@@ -43,12 +42,12 @@ static const float D2_PULSE_MIN = 0.0200f;
 static const float D2_PULSE_MAX = 0.1310f;
 
 // =============================================================================
-// 360°-SERVO TUNING — exakt aus prototype03_v27.cpp (Zeile 115-118)
+// 360°-SERVO TUNING — exakt aus prototype03_v27.cpp
 // =============================================================================
 static const float SF360_KP        = 0.005f;
-static const float SF360_TOL_DEG   = 2.1f;     // V27 unverändert
+static const float SF360_TOL_DEG   = 2.1f;
 static const float SF360_MIN_SPEED = 0.01f;
-static const float SF360_OFFSET    = 70.0f;    // V27 unverändert
+static const float SF360_OFFSET    = 110.0f;
 
 // =============================================================================
 // PHASENZEITEN (Loops @ 50 Hz, 1 Loop = 20 ms)
@@ -57,58 +56,35 @@ static const int WARMUP_LOOPS_INIT = 25;    // 500 ms in _init()
 static const int WARMUP_MAX_LOOPS  = 200;   // 4 s Sicherheits-Cap
 static const int TURN_TIMEOUT      = 250;   // 5 s pro Tray-Move
 
-static const int PAUSE_500_LOOPS = 25;
-static const int PAUSE_300_LOOPS = 15;
-static const int PAUSE_200_LOOPS = 10;
+static const int PAUSE_1S_LOOPS = 50;       // 1 s zwischen allen Schritten
 
-// Step 7 — grober Jiggle ±10°, Total 1 s = 50 Loops, 3 Phasen à ~17 Loops
-static const int JIGGLE_GROB_TOTAL = 50;
-static const int JIGGLE_GROB_PH1   = 17;
-static const int JIGGLE_GROB_PH2   = 34;
-
-// Step 9 — feiner Jiggle ±5°, Total 1.5 s = 75 Loops, 3 Phasen à 25 Loops
-static const int JIGGLE_FEIN_TOTAL = 75;
-static const int JIGGLE_FEIN_PH1   = 25;
-static const int JIGGLE_FEIN_PH2   = 50;
-
-// =============================================================================
-// SEQUENZ-PARAMETER
-// =============================================================================
-static const float TARGET_HOME    =  0.0f;   // Schritt 1
-static const float TARGET_STEP2   = 30.0f;   // Schritt 2: +30° CW
-static const float STEP5_HALF1    = 195.0f;  // 30 + 165 (CW-Zwischenpunkt)
-static const float TARGET_STEP5   =  0.0f;   // Schritt 5: zurück auf 0° (CW +330°)
-static const float TARGET_STEP8   = 45.0f;   // Schritt 8: auf 45° (CW +45°)
-
-static const float JIGGLE_GROB_AMPL = 10.0f;
-static const float JIGGLE_FEIN_AMPL =  5.0f;
-static const float D1_JIGGLE_OFFSET = 0.05f; // V27 D1_JIGGLE_OFFSET, ~5-8mm Schwung
+// Schritt 5 — Jiggle ±10° (360°) + minimaler Jiggle (M20), Total 1 s = 50 Loops
+static const int JIGGLE_TOTAL = 50;
+static const int JIGGLE_PH1   = 17;         // Phasenwechsel bei Loop 17
+static const int JIGGLE_PH2   = 34;         // Phasenwechsel bei Loop 34
+static const float JIGGLE_AMPL      = 10.0f;
+static const float D1_JIGGLE_OFFSET = 0.05f; // ~5-8mm Schwung horizontal
 
 // =============================================================================
 // STATE MACHINE
 // =============================================================================
 enum SeqState {
-    SEQ_S1_HOMING,        // Tray → 0°, M21 → UP, M20 → RETRACTED
-    SEQ_S1_PAUSE,         // 500 ms
-    SEQ_S2_TURN_30,       // Tray → 30°
-    SEQ_S2_PAUSE,         // 300 ms
-    SEQ_S3_EXTEND,        // M20 → 0.95
-    SEQ_S3_PAUSE,         // 500 ms
-    SEQ_S4_PARTIAL,       // M21 → 0.85
-    SEQ_S4_PAUSE,         // 300 ms
-    SEQ_S5A_TURN_HALF,    // Tray → 195° (CW +165° von 30°)
-    SEQ_S5B_TURN_END,     // Tray → 0°   (CW +165° = total +330°)
-    SEQ_S5_PAUSE,         // 300 ms
-    SEQ_S6_FULL,          // M21 → 0.28
-    SEQ_S6_PAUSE,         // 300 ms
-    SEQ_S7_JIGGLE_GROB,   // Tray ±10° um 0°, 1 s
-    SEQ_S7_PAUSE,         // 200 ms
-    SEQ_S8_TURN_45,       // Tray → 45°
-    SEQ_S8_PAUSE,         // 300 ms
-    SEQ_S9_JIGGLE_FEIN,   // Tray ±5° um 45° + M20 Jiggle, 1.5 s
-    SEQ_S9_PAUSE,         // 200 ms
-    SEQ_S10_END,          // M21 → UP, M20 → RETRACTED, alle disable
-    SEQ_DONE              // Fertig — wartet auf Reset (Knopf 2) dann S1
+    SEQ_S1_HOMING,       // Alle 3 Servos auf Nullstellung, Tray → 0°
+    SEQ_S1_PAUSE,        // 1 s
+    SEQ_S2_PARTIAL_DOWN, // Vertikalen Arm 1 cm runter (D2_PARTIAL_DOWN)
+    SEQ_S2_PAUSE,        // 1 s
+    SEQ_S3_EXTEND,       // Horizontalen Arm ausfahren (80%)
+    SEQ_S3_PAUSE,        // 1 s
+    SEQ_S4_FULL_DOWN,    // Vertikalen Arm auf Pickup-Tiefe
+    SEQ_S4_PAUSE,        // 1 s
+    SEQ_S5_JIGGLE,       // Jiggle: Tray ±10° + minimaler M20-Jiggle, 1 s
+    SEQ_S5_PAUSE,        // 1 s
+    SEQ_S6_ARM_UP,       // Vertikalen Arm auf Nullstellung
+    SEQ_S6_PAUSE,        // 1 s
+    SEQ_S7_RETRACT,      // Horizontalen Arm auf Nullstellung
+    SEQ_S7_PAUSE,        // 1 s
+    SEQ_S8_HOME_TRAY,    // 360° Servo zurück auf 0°
+    SEQ_DONE             // Fertig — wartet auf Reset (Knopf 2) dann S1
 };
 
 static Servo*            g_d1   = nullptr;  // M20 horizontal
@@ -118,7 +94,6 @@ static ServoFeedback360* g_tray = nullptr;  // M22 Drehteller
 static SeqState m_state = SEQ_S1_HOMING;
 static int      m_ctr   = 0;
 
-// Pulsbreiten-Tracking für Debug (Servo-API hat keinen Getter)
 static float m_d1_pulse = D1_RETRACTED;
 static float m_d2_pulse = D2_UP;
 
@@ -132,8 +107,6 @@ static float wrapAngle(float a)
     return a;
 }
 
-// V27 Pattern: enable() um den Servo zu wecken / sofort auf Wert zu springen,
-// setPulseWidth() um Wert zu ändern wenn schon enabled.
 static void d1Enable(float pulse)
 {
     g_d1->enable(pulse);
@@ -160,34 +133,29 @@ static void d2Set(float pulse)
 
 static void trayMoveTo(float deg)
 {
-    g_tray->enable(0.5f);              // Bit-bang PWM aufwecken (stop pulse)
+    g_tray->enable(0.5f);
     g_tray->moveToAngle(wrapAngle(deg));
 }
 
 static const char* stateName(SeqState s)
 {
     switch (s) {
-        case SEQ_S1_HOMING:      return "S1_HOMING ";
-        case SEQ_S1_PAUSE:       return "S1_PAUSE  ";
-        case SEQ_S2_TURN_30:     return "S2_TURN30 ";
-        case SEQ_S2_PAUSE:       return "S2_PAUSE  ";
-        case SEQ_S3_EXTEND:      return "S3_EXTEND ";
-        case SEQ_S3_PAUSE:       return "S3_PAUSE  ";
-        case SEQ_S4_PARTIAL:     return "S4_PARTIAL";
-        case SEQ_S4_PAUSE:       return "S4_PAUSE  ";
-        case SEQ_S5A_TURN_HALF:  return "S5A_HALF  ";
-        case SEQ_S5B_TURN_END:   return "S5B_END   ";
-        case SEQ_S5_PAUSE:       return "S5_PAUSE  ";
-        case SEQ_S6_FULL:        return "S6_FULL   ";
-        case SEQ_S6_PAUSE:       return "S6_PAUSE  ";
-        case SEQ_S7_JIGGLE_GROB: return "S7_JIG_GR ";
-        case SEQ_S7_PAUSE:       return "S7_PAUSE  ";
-        case SEQ_S8_TURN_45:     return "S8_TURN45 ";
-        case SEQ_S8_PAUSE:       return "S8_PAUSE  ";
-        case SEQ_S9_JIGGLE_FEIN: return "S9_JIG_FN ";
-        case SEQ_S9_PAUSE:       return "S9_PAUSE  ";
-        case SEQ_S10_END:        return "S10_END   ";
-        case SEQ_DONE:           return "DONE      ";
+        case SEQ_S1_HOMING:       return "S1_HOMING ";
+        case SEQ_S1_PAUSE:        return "S1_PAUSE  ";
+        case SEQ_S2_PARTIAL_DOWN: return "S2_PART_DN";
+        case SEQ_S2_PAUSE:        return "S2_PAUSE  ";
+        case SEQ_S3_EXTEND:       return "S3_EXTEND ";
+        case SEQ_S3_PAUSE:        return "S3_PAUSE  ";
+        case SEQ_S4_FULL_DOWN:    return "S4_FULL_DN";
+        case SEQ_S4_PAUSE:        return "S4_PAUSE  ";
+        case SEQ_S5_JIGGLE:       return "S5_JIGGLE ";
+        case SEQ_S5_PAUSE:        return "S5_PAUSE  ";
+        case SEQ_S6_ARM_UP:       return "S6_ARM_UP ";
+        case SEQ_S6_PAUSE:        return "S6_PAUSE  ";
+        case SEQ_S7_RETRACT:      return "S7_RETRACT";
+        case SEQ_S7_PAUSE:        return "S7_PAUSE  ";
+        case SEQ_S8_HOME_TRAY:    return "S8_HOME   ";
+        case SEQ_DONE:            return "DONE      ";
     }
     return "?         ";
 }
@@ -208,7 +176,6 @@ static void printDebug(const char* tag)
 // =============================================================================
 void test_arm_sequence_init(int /*loops_per_second*/)
 {
-    // 1) Hardware-Objekte (static — bleiben dauerhaft im Speicher)
     static Servo servo_d1(PC_8);     // M20 horizontal
     static Servo servo_d2(PB_2);     // M21 vertikal
     static ServoFeedback360 tray(PB_12, PC_2,
@@ -218,15 +185,12 @@ void test_arm_sequence_init(int /*loops_per_second*/)
     g_d2   = &servo_d2;
     g_tray = &tray;
 
-    // 2) Kalibrierung (V27 exakt). KEIN setMaxAcceleration!
     g_d1->calibratePulseMinMax(D1_PULSE_MIN, D1_PULSE_MAX);
     g_d2->calibratePulseMinMax(D2_PULSE_MIN, D2_PULSE_MAX);
 
-    // 3) Transport-Position: Arm hoch + Arm eingefahren (V27 line 743-744 Pattern)
     d1Enable(D1_RETRACTED);
     d2Enable(D2_UP);
 
-    // 4) Warmup Parallax-Feedback (synchron, ~500 ms)
     g_tray->stop();
     int warmup_ctr = 0;
     while (warmup_ctr < WARMUP_LOOPS_INIT || !g_tray->isFeedbackValid()) {
@@ -235,15 +199,13 @@ void test_arm_sequence_init(int /*loops_per_second*/)
         warmup_ctr++;
         if (warmup_ctr > WARMUP_MAX_LOOPS) break;
     }
-
-    // 5) Bit-bang PWM aus (reduziert ISR-Konkurrenz / Jitter)
     g_tray->disable();
 
     m_state = SEQ_S1_HOMING;
     m_ctr   = 0;
 
-    printf("\n=== TEST_ARM_SEQUENCE ===\n");
-    printf("Warmup OK | aktuelle tray-Position: %.1f° | feedback=%d\n",
+    printf("\n=== TEST_ARM_SEQUENCE (8 Schritte) ===\n");
+    printf("Warmup OK | tray=%.1f° | feedback=%d\n",
            g_tray->getCurrentAngle(), g_tray->isFeedbackValid() ? 1 : 0);
     printf("Bereit. Buttondruck startet Sequenz.\n");
 }
@@ -258,14 +220,14 @@ void test_arm_sequence_task(DigitalOut& led)
     switch (m_state) {
 
         // =====================================================================
-        // SCHRITT 1: AUSRICHTEN — Tray → 0°, M21 → UP, M20 → RETRACTED
+        // SCHRITT 1: NULLSTELLUNG — Tray → 0°, M21 → UP, M20 → RETRACTED
         // =====================================================================
         case SEQ_S1_HOMING: {
             if (m_ctr == 0) {
                 d2Enable(D2_UP);
                 d1Enable(D1_RETRACTED);
-                trayMoveTo(TARGET_HOME);
-                printf("\nSchritt 1: AUSRICHTEN — tray->0°, M21->%.2f, M20->%.2f\n",
+                trayMoveTo(0.0f);
+                printf("\nSchritt 1: Nullstellung — tray->0°, M21->%.2f, M20->%.2f\n",
                        D2_UP, D1_RETRACTED);
             }
             g_tray->update();
@@ -273,9 +235,8 @@ void test_arm_sequence_task(DigitalOut& led)
             if (g_tray->isAtTarget() || m_ctr >= TURN_TIMEOUT) {
                 if (!g_tray->isAtTarget())
                     printf("  TIMEOUT bei %.1f°\n", g_tray->getCurrentAngle());
-                printf("Schritt 1: Ausgerichtet auf 0-Stellung (Ist: %.1f°)\n",
-                       g_tray->getCurrentAngle());
                 g_tray->stop();
+                printf("Schritt 1: OK — Ist: %.1f°\n", g_tray->getCurrentAngle());
                 m_ctr   = 0;
                 m_state = SEQ_S1_PAUSE;
             }
@@ -283,296 +244,168 @@ void test_arm_sequence_task(DigitalOut& led)
         }
 
         case SEQ_S1_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_500_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S2_TURN_30;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S2_PARTIAL_DOWN; }
             break;
 
         // =====================================================================
-        // SCHRITT 2: DREHTELLER +30° NACH VORNE
+        // SCHRITT 2: VERTIKALEN ARM 1 CM RUNTER
         // =====================================================================
-        case SEQ_S2_TURN_30: {
+        case SEQ_S2_PARTIAL_DOWN:
             if (m_ctr == 0) {
-                trayMoveTo(TARGET_STEP2);
-                printf("\nSchritt 2: Drehteller -> %.1f° (CW +30°)\n", TARGET_STEP2);
+                d2Set(D2_PARTIAL_DOWN);
+                printf("\nSchritt 2: Vertikaler Arm 1 cm runter (M21=%.2f)\n",
+                       D2_PARTIAL_DOWN);
+                printDebug("S2");
             }
-            g_tray->update();
             m_ctr++;
-            if (g_tray->isAtTarget() || m_ctr >= TURN_TIMEOUT) {
-                if (!g_tray->isAtTarget())
-                    printf("  TIMEOUT bei %.1f°\n", g_tray->getCurrentAngle());
-                printf("Schritt 2: Drehteller auf 30°, Ist: %.1f°\n",
-                       g_tray->getCurrentAngle());
-                g_tray->stop();
-                m_ctr   = 0;
-                m_state = SEQ_S2_PAUSE;
-            }
+            if (m_ctr >= 2) { m_ctr = 0; m_state = SEQ_S2_PAUSE; }
             break;
-        }
 
         case SEQ_S2_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_300_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S3_EXTEND;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S3_EXTEND; }
             break;
 
         // =====================================================================
-        // SCHRITT 3: HORIZONTALEN ARM AUSFAHREN — V27 Pattern: enable() jumpt
+        // SCHRITT 3: HORIZONTALEN ARM AUSFAHREN (80%)
         // =====================================================================
         case SEQ_S3_EXTEND:
             if (m_ctr == 0) {
-                d1Enable(D1_EXTENDED);
+                d1Enable(D1_EXTENDED_80);
                 printf("\nSchritt 3: Horizontaler Arm ausgefahren (M20=%.2f)\n",
-                       D1_EXTENDED);
+                       D1_EXTENDED_80);
                 printDebug("S3");
             }
             m_ctr++;
-            if (m_ctr >= 2) {  // 1 Loop reicht — Servo springt instantan (kein setMaxAccel)
-                m_ctr   = 0;
-                m_state = SEQ_S3_PAUSE;
-            }
+            if (m_ctr >= 2) { m_ctr = 0; m_state = SEQ_S3_PAUSE; }
             break;
 
         case SEQ_S3_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_500_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S4_PARTIAL;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S4_FULL_DOWN; }
             break;
 
         // =====================================================================
-        // SCHRITT 4: VERTIKALEN ARM 10mm RUNTER
+        // SCHRITT 4: VERTIKALEN ARM AUF PICKUP-TIEFE
         // =====================================================================
-        case SEQ_S4_PARTIAL:
+        case SEQ_S4_FULL_DOWN:
             if (m_ctr == 0) {
-                d2Set(D2_PARTIAL_DOWN);
-                printf("\nSchritt 4: Vertikaler Arm 10mm abgesenkt (M21=%.2f)\n",
-                       D2_PARTIAL_DOWN);
+                d2Set(D2_FULL_DOWN);
+                printf("\nSchritt 4: Vertikaler Arm auf Pickup-Tiefe (M21=%.2f)\n",
+                       D2_FULL_DOWN);
                 printDebug("S4");
             }
             m_ctr++;
-            if (m_ctr >= 2) {
-                m_ctr   = 0;
-                m_state = SEQ_S4_PAUSE;
-            }
+            if (m_ctr >= 2) { m_ctr = 0; m_state = SEQ_S4_PAUSE; }
             break;
 
         case SEQ_S4_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_300_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S5A_TURN_HALF;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S5_JIGGLE; }
             break;
 
         // =====================================================================
-        // SCHRITT 5: DREHTELLER +330° CW ZURÜCK AUF 0°
-        //   — als 2 Substeps à +165° um 180°-Ambiguität zu vermeiden
+        // SCHRITT 5: JIGGLE — Tray ±10° + minimaler M20-Jiggle (1 s)
+        //   Phase A (ctr=0):  tray->350°(-10°), M20->0.85 (vor)
+        //   Phase B (ctr=17): tray->10°(+10°),  M20->0.75 (zurück)
+        //   Phase C (ctr=34): tray->0°,          M20->0.80 (mitte)
         // =====================================================================
-        case SEQ_S5A_TURN_HALF: {
+        case SEQ_S5_JIGGLE:
             if (m_ctr == 0) {
-                trayMoveTo(STEP5_HALF1);
-                printf("\nSchritt 5a: Drehteller -> %.1f° (CW +165°)\n", STEP5_HALF1);
+                trayMoveTo(-JIGGLE_AMPL);                           // 350°
+                d1Set(D1_EXTENDED_80 + D1_JIGGLE_OFFSET);
+                printf("\nSchritt 5: Jiggle ±10° + M20-Jiggle (1 s)\n");
+            } else if (m_ctr == JIGGLE_PH1) {
+                trayMoveTo(JIGGLE_AMPL);                            // 10°
+                d1Set(D1_EXTENDED_80 - D1_JIGGLE_OFFSET);
+            } else if (m_ctr == JIGGLE_PH2) {
+                trayMoveTo(0.0f);                                   // 0°
+                d1Set(D1_EXTENDED_80);
             }
             g_tray->update();
             m_ctr++;
-            if (g_tray->isAtTarget() || m_ctr >= TURN_TIMEOUT) {
-                printf("  5a Ist: %.1f°\n", g_tray->getCurrentAngle());
-                m_ctr   = 0;
-                m_state = SEQ_S5B_TURN_END;
-            }
-            break;
-        }
-
-        case SEQ_S5B_TURN_END: {
-            if (m_ctr == 0) {
-                trayMoveTo(TARGET_STEP5);
-                printf("Schritt 5b: Drehteller -> %.1f° (CW +165° = total +330°)\n",
-                       TARGET_STEP5);
-            }
-            g_tray->update();
-            m_ctr++;
-            if (g_tray->isAtTarget() || m_ctr >= TURN_TIMEOUT) {
-                if (!g_tray->isAtTarget())
-                    printf("  TIMEOUT bei %.1f°\n", g_tray->getCurrentAngle());
-                printf("Schritt 5: Drehteller zurück auf 0°, Ist: %.1f°\n",
-                       g_tray->getCurrentAngle());
+            if (m_ctr >= JIGGLE_TOTAL) {
                 g_tray->stop();
+                printf("Schritt 5: Jiggle fertig, tray=%.1f°\n",
+                       g_tray->getCurrentAngle());
                 m_ctr   = 0;
                 m_state = SEQ_S5_PAUSE;
             }
             break;
-        }
 
         case SEQ_S5_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_300_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S6_FULL;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S6_ARM_UP; }
             break;
 
         // =====================================================================
-        // SCHRITT 6: VERTIKALEN ARM KOMPLETT RUNTER (BLAU-Tiefe)
+        // SCHRITT 6: VERTIKALEN ARM AUF NULLSTELLUNG
         // =====================================================================
-        case SEQ_S6_FULL:
+        case SEQ_S6_ARM_UP:
             if (m_ctr == 0) {
-                d2Set(D2_FULL_DOWN);
-                printf("\nSchritt 6: Vertikaler Arm voll abgesenkt (M21=%.2f)\n",
-                       D2_FULL_DOWN);
+                d2Set(D2_UP);
+                printf("\nSchritt 6: Vertikaler Arm hoch (M21=%.2f)\n", D2_UP);
                 printDebug("S6");
             }
             m_ctr++;
-            if (m_ctr >= 2) {
-                m_ctr   = 0;
-                m_state = SEQ_S6_PAUSE;
-            }
+            if (m_ctr >= 2) { m_ctr = 0; m_state = SEQ_S6_PAUSE; }
             break;
 
         case SEQ_S6_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_300_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S7_JIGGLE_GROB;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S7_RETRACT; }
             break;
 
         // =====================================================================
-        // SCHRITT 7: GROBER JIGGLE — Drehteller 0° → -10° → +10° → 0° (1 s)
+        // SCHRITT 7: HORIZONTALEN ARM AUF NULLSTELLUNG
         // =====================================================================
-        case SEQ_S7_JIGGLE_GROB:
+        case SEQ_S7_RETRACT:
             if (m_ctr == 0) {
-                trayMoveTo(wrapAngle(-JIGGLE_GROB_AMPL));   // -10° = 350°
-                printf("\nSchritt 7: Grober Jiggle ±10° (1 s)\n");
-            } else if (m_ctr == JIGGLE_GROB_PH1) {
-                trayMoveTo(JIGGLE_GROB_AMPL);                // +10°
-            } else if (m_ctr == JIGGLE_GROB_PH2) {
-                trayMoveTo(0.0f);                            // zurück auf 0°
+                d1Set(D1_RETRACTED);
+                printf("\nSchritt 7: Horizontaler Arm eingefahren (M20=%.2f)\n",
+                       D1_RETRACTED);
+                printDebug("S7");
             }
-            g_tray->update();
             m_ctr++;
-            if (m_ctr >= JIGGLE_GROB_TOTAL) {
-                printf("Schritt 7: Jiggle fertig, Ist: %.1f°\n",
-                       g_tray->getCurrentAngle());
-                g_tray->stop();
-                m_ctr   = 0;
-                m_state = SEQ_S7_PAUSE;
-            }
+            if (m_ctr >= 2) { m_ctr = 0; m_state = SEQ_S7_PAUSE; }
             break;
 
         case SEQ_S7_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_200_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S8_TURN_45;
-            }
+            if (++m_ctr >= PAUSE_1S_LOOPS) { m_ctr = 0; m_state = SEQ_S8_HOME_TRAY; }
             break;
 
         // =====================================================================
-        // SCHRITT 8: DREHTELLER AUF 45°
+        // SCHRITT 8: 360° SERVO ZURÜCK AUF 0°
         // =====================================================================
-        case SEQ_S8_TURN_45: {
+        case SEQ_S8_HOME_TRAY: {
             if (m_ctr == 0) {
-                trayMoveTo(TARGET_STEP8);
-                printf("\nSchritt 8: Drehteller -> 45° (CW)\n");
+                trayMoveTo(0.0f);
+                printf("\nSchritt 8: Drehteller -> 0°\n");
             }
             g_tray->update();
             m_ctr++;
             if (g_tray->isAtTarget() || m_ctr >= TURN_TIMEOUT) {
                 if (!g_tray->isAtTarget())
                     printf("  TIMEOUT bei %.1f°\n", g_tray->getCurrentAngle());
-                printf("Schritt 8: Drehteller auf 45°, Ist: %.1f°\n",
-                       g_tray->getCurrentAngle());
                 g_tray->stop();
+                printf("Schritt 8: OK — Ist: %.1f°\n", g_tray->getCurrentAngle());
+                printDebug("S8");
+
+                thread_sleep_for(500);
+                g_d1->disable();
+                g_d2->disable();
+                g_tray->disable();
+                led = 0;
+
+                printf("\nSequenz abgeschlossen. Knopf 2x druecken um neu zu starten.\n");
+                m_state = SEQ_DONE;
                 m_ctr   = 0;
-                m_state = SEQ_S8_PAUSE;
             }
             break;
         }
 
-        case SEQ_S8_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_300_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S9_JIGGLE_FEIN;
-            }
-            break;
-
-        // =====================================================================
-        // SCHRITT 9: FEINER JIGGLE — Tray ±5° um 45° + M20 Jiggle (1.5 s)
-        //   Phasen: 40° + vor → 50° + zurück → 45° + mitte
-        // =====================================================================
-        case SEQ_S9_JIGGLE_FEIN:
-            if (m_ctr == 0) {
-                trayMoveTo(TARGET_STEP8 - JIGGLE_FEIN_AMPL);   // 40°
-                d1Set(D1_EXTENDED + D1_JIGGLE_OFFSET);          // vor
-                printf("\nSchritt 9: Feiner 2D-Jiggle (1.5 s)\n");
-                printf("  A: tray->40°, M20->%.2f (vor)\n",
-                       D1_EXTENDED + D1_JIGGLE_OFFSET);
-            } else if (m_ctr == JIGGLE_FEIN_PH1) {
-                trayMoveTo(TARGET_STEP8 + JIGGLE_FEIN_AMPL);    // 50°
-                d1Set(D1_EXTENDED - D1_JIGGLE_OFFSET);          // zurück
-                printf("  B: tray->50°, M20->%.2f (zurueck)\n",
-                       D1_EXTENDED - D1_JIGGLE_OFFSET);
-            } else if (m_ctr == JIGGLE_FEIN_PH2) {
-                trayMoveTo(TARGET_STEP8);                       // 45°
-                d1Set(D1_EXTENDED);                             // mitte
-                printf("  C: tray->45°, M20->%.2f (mitte)\n", D1_EXTENDED);
-            }
-            g_tray->update();
-            m_ctr++;
-            if (m_ctr >= JIGGLE_FEIN_TOTAL) {
-                printf("Schritt 9: Feiner Jiggle fertig, Ist: %.1f°\n",
-                       g_tray->getCurrentAngle());
-                g_tray->stop();
-                m_ctr   = 0;
-                m_state = SEQ_S9_PAUSE;
-            }
-            break;
-
-        case SEQ_S9_PAUSE:
-            m_ctr++;
-            if (m_ctr >= PAUSE_200_LOOPS) {
-                m_ctr   = 0;
-                m_state = SEQ_S10_END;
-            }
-            break;
-
-        // =====================================================================
-        // SCHRITT 10: ARM HOCH — Sequenz fertig
-        // =====================================================================
-        case SEQ_S10_END:
-            d2Set(D2_UP);
-            d1Set(D1_RETRACTED);
-            printf("\nSchritt 10: Arm hoch. Sequenz abgeschlossen.\n");
-            printDebug("S10");
-
-            thread_sleep_for(500);  // Servos die Endposition erreichen lassen
-
-            g_d1->disable();
-            g_d2->disable();
-            g_tray->disable();
-            led = 0;
-
-            printf("Fertig. Knopf 2x druecken um Sequenz neu zu starten (Stop + Start).\n");
-            m_state = SEQ_DONE;
-            break;
-
         case SEQ_DONE:
-            // Idle — wartet auf Knopf 2 (Stop via _reset) + Knopf 3 (Start von S1)
             break;
     }
 }
 
 // =============================================================================
 // _reset() — Sequenz stoppen und auf S1 zurücksetzen
-//   Wird von main.cpp aufgerufen wenn Knopf gedrückt (gerade paar = Stop).
-//   Nächster Knopfdruck (ungerade = Start) ruft _task() wieder auf → S1.
 // =============================================================================
 void test_arm_sequence_reset(DigitalOut& led)
 {

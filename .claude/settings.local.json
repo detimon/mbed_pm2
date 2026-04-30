@@ -20,7 +20,8 @@
       "Bash(pio run:*)",
       "Bash(~/.platformio/penv/bin/pio run:*)",
       "Read(//c/Users/alexa/.platformio/penv/Scripts//**)",
-      "Read(//c/Users/alexa/AppData/Local/Programs/**)"
+      "Read(//c/Users/alexa/AppData/Local/Programs/**)",
+      "PowerShell(& \"C:\\\\Users\\\\andre\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\" run 2>&1)"
     ]
   }
 }
