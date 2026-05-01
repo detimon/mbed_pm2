@@ -73,12 +73,12 @@ static const int   TOTAL_SMALL_CROSSINGS      = 4;
 static const int   SMALL_CROSSING_STOP_LOOPS  = 100;
 
 // 180° Servo-Positionen (aus v29, TEST_ARM_SEQUENCE validiert 2026-04-30)
-static const float D1_RETRACTED       = 0.0f;
-static const float D1_EXTENDED        = 0.65f;
+static const float D1_RETRACTED       = 0.1f;
+static const float D1_EXTENDED        = 0.80f;
 static const float D2_UP              = 1.0f;
 static const float D2_PARTIAL_DOWN    = 0.50f;
-static const float D2_DOWN_BLAU       = 0.28f;
-static const float D2_DOWN_GRUEN      = 0.07f;
+static const float D2_DOWN_BLAU       = 0.22f;
+static const float D2_DOWN_GRUEN      = 0.05f;
 
 // PICKUP / DELIVER Timing (aus v29)
 static const int   PICKUP_PAUSE_LOOPS  = 50;
@@ -104,6 +104,11 @@ static const float SF360_MIN_SPEED   = 0.01f;
 static const float SF360_OFFSET      = 110.0f;
 static const int   SF360_WARMUP_LOOPS = 25;
 static const float JIGGLE_DEG        = 5.0f;   // ±5° Jiggle-Amplitude
+
+// Drehteller-Winkel für jede Farbe (aus v29)
+static const float COLOR_ANGLE[4] = {0.0f, 90.0f, 180.0f, 270.0f};
+// Mapping: colorToSlot(3)=0 (ROT→0°), colorToSlot(5)=1 (GRÜN→90°),
+//          colorToSlot(7)=2 (BLAU→180°), colorToSlot(4)=3 (GELB→270°)
 
 // ---------------------------------------------------------------------------
 // States (identisch zu v23)
@@ -191,6 +196,10 @@ static bool  m_rot_gelb_is_small   = false;
 static int   m_rot_gelb_color      = 0;
 static int   m_color_fallback      = 0;
 
+// Drehteller-Bewegung
+static bool  m_tray_moving         = false;  // true während Servo aktiv sein soll
+static int   m_home_timer          = 0;      // 3s Ausrichtungs-Timer nach all_sensors_active()
+
 // ---------------------------------------------------------------------------
 // Hilfsfunktionen (identisch zu v23)
 // ---------------------------------------------------------------------------
@@ -239,74 +248,128 @@ static float extensionForColor(int /*c*/)
     return D1_EXTENDED;
 }
 
+static int colorToSlot(int c)
+{
+    switch (c) {
+        case 3: return 0; // ROT   → 0°
+        case 5: return 1; // GRÜN  → 90°
+        case 7: return 2; // BLAU  → 180°
+        case 4: return 3; // GELB  → 270°
+        default: return -1;
+    }
+}
+
+static void trayMoveTo(float deg)
+{
+    if (!m_tray_moving) {
+        g_servoTray->enable(0.5f);  // nur einschalten wenn bisher deaktiviert
+        m_tray_moving = true;
+    }
+    g_servoTray->moveToAngle(deg);
+}
+
+static void trayStop()
+{
+    g_servoTray->stop();
+    g_servoTray->disable();
+    m_tray_moving = false;
+}
+
 // ---------------------------------------------------------------------------
-// Arm-Sequenz Pickup (aus v29, adaptiert für g_servo_D1/D2)
-// Phase 0: Drehteller auf m_target_angle warten
-// Phase 1: D2 partial → Phase 2: D1 extend → Phase 3: D2 voll →
-// Phase 4: Jiggle → Phase 5: D2 hoch → Phase 6: D1 einfahren
-// Returns true wenn fertig.
+// Jiggle-Hilfsfunktion: ruft moveToAngle() im ±AMPL-Muster auf.
+// tick = laufender Zähler (phasen-übergreifend). Nur tray, kein enable().
+// ---------------------------------------------------------------------------
+static void applyJiggleTick(int tick)
+{
+    const int ph1 = JIGGLE_LOOPS / 3;
+    const int ph2 = 2 * JIGGLE_LOOPS / 3;
+    int jp = tick % JIGGLE_LOOPS;
+    if      (jp == 0)    g_servoTray->moveToAngle(m_target_angle - JIGGLE_AMPL_DEG);
+    else if (jp == ph1)  g_servoTray->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
+    else if (jp == ph2)  g_servoTray->moveToAngle(m_target_angle);
+}
+
+// ---------------------------------------------------------------------------
+// Arm-Sequenz Pickup
+// Phase 0: Tray → target (warten)
+// Phase 1: D2 partial + Jiggle startet sofort
+// Phase 2: D1 extend  + Jiggle weiter
+// Phase 3: D2 voll    + Jiggle weiter
+// Phase 4: D2 hoch    + Jiggle stoppt (→ target zentrieren)
+// Phase 5: D1 einfahren → return true
 // ---------------------------------------------------------------------------
 static bool runPickupPhase()
 {
+    static int s_jiggle_tick = 0;
+
+    // Phase 0: Tray zum Zielwinkel fahren (trayMoveTo sichert enable)
     if (m_phase_idx == 0) {
         if (m_phase_ctr == 0)
-            g_servoTray->moveToAngle(m_target_angle);
+            trayMoveTo(m_target_angle);
         m_phase_ctr++;
         if (g_servoTray->isAtTarget() || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
-            m_phase_idx = 1; m_phase_ctr = 0;
+            m_phase_idx   = 1;
+            m_phase_ctr   = 0;
+            s_jiggle_tick = 0;
         }
         return false;
     }
+    // Phase 1: D2 partial down — Jiggle startet sofort (nur Tray, D1 noch eingefahren)
     if (m_phase_idx == 1) {
         if (m_phase_ctr == 0) {
             g_servo_D1->enable(D1_RETRACTED);
             g_servo_D2->enable(D2_PARTIAL_DOWN);
         }
+        applyJiggleTick(s_jiggle_tick);
+        s_jiggle_tick++;
         m_phase_ctr++;
         if (m_phase_ctr >= PICKUP_PAUSE_LOOPS) { m_phase_idx = 2; m_phase_ctr = 0; }
         return false;
     }
+    // Phase 2: D1 ausfahren — Jiggle weiter + D1 synchron mitbewegen
     if (m_phase_idx == 2) {
+        const float base = extensionForColor(m_action_color);
         if (m_phase_ctr == 0)
-            g_servo_D1->setPulseWidth(extensionForColor(m_action_color));
+            g_servo_D1->setPulseWidth(base);
+        applyJiggleTick(s_jiggle_tick);
+        const int jp2 = s_jiggle_tick % JIGGLE_LOOPS;
+        if      (jp2 == 0)                  g_servo_D1->setPulseWidth(base + D1_JIGGLE_OFFSET);
+        else if (jp2 == JIGGLE_LOOPS / 3)   g_servo_D1->setPulseWidth(base - D1_JIGGLE_OFFSET);
+        else if (jp2 == 2*JIGGLE_LOOPS/3)   g_servo_D1->setPulseWidth(base);
+        s_jiggle_tick++;
         m_phase_ctr++;
         if (m_phase_ctr >= PICKUP_PAUSE_LOOPS) { m_phase_idx = 3; m_phase_ctr = 0; }
         return false;
     }
+    // Phase 3: D2 voll runter — Jiggle weiter
     if (m_phase_idx == 3) {
+        const float base = extensionForColor(m_action_color);
         if (m_phase_ctr == 0)
             g_servo_D2->setPulseWidth(depthForColor(m_action_color));
+        applyJiggleTick(s_jiggle_tick);
+        const int jp3 = s_jiggle_tick % JIGGLE_LOOPS;
+        if      (jp3 == 0)                  g_servo_D1->setPulseWidth(base + D1_JIGGLE_OFFSET);
+        else if (jp3 == JIGGLE_LOOPS / 3)   g_servo_D1->setPulseWidth(base - D1_JIGGLE_OFFSET);
+        else if (jp3 == 2*JIGGLE_LOOPS/3)   g_servo_D1->setPulseWidth(base);
+        s_jiggle_tick++;
         m_phase_ctr++;
         if (m_phase_ctr >= PICKUP_PAUSE_LOOPS) { m_phase_idx = 4; m_phase_ctr = 0; }
         return false;
     }
+    // Phase 4: D2 hoch — Jiggle stoppt, Tray zurück zur Mitte
     if (m_phase_idx == 4) {
-        const float base = extensionForColor(m_action_color);
-        const int   ph1  = JIGGLE_LOOPS / 3;
-        const int   ph2  = 2 * JIGGLE_LOOPS / 3;
         if (m_phase_ctr == 0) {
-            g_servoTray->moveToAngle(m_target_angle - JIGGLE_AMPL_DEG);
-            g_servo_D1->setPulseWidth(base + D1_JIGGLE_OFFSET);
-        } else if (m_phase_ctr == ph1) {
-            g_servoTray->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
-            g_servo_D1->setPulseWidth(base - D1_JIGGLE_OFFSET);
-        } else if (m_phase_ctr == ph2) {
-            g_servoTray->moveToAngle(m_target_angle);
-            g_servo_D1->setPulseWidth(base);
+            g_servo_D2->setPulseWidth(D2_UP);
+            g_servoTray->moveToAngle(m_target_angle);  // Jiggle beenden
         }
         m_phase_ctr++;
-        if (m_phase_ctr >= JIGGLE_LOOPS) { m_phase_idx = 5; m_phase_ctr = 0; }
+        if (m_phase_ctr >= PICKUP_PAUSE_LOOPS) { m_phase_idx = 5; m_phase_ctr = 0; }
         return false;
     }
+    // Phase 5: D1 einfahren
     if (m_phase_idx == 5) {
-        if (m_phase_ctr == 0) g_servo_D2->setPulseWidth(D2_UP);
-        m_phase_ctr++;
-        if (m_phase_ctr >= PICKUP_PAUSE_LOOPS) { m_phase_idx = 6; m_phase_ctr = 0; }
-        return false;
-    }
-    if (m_phase_idx == 6) {
         if (m_phase_ctr == 0) {
-            g_servo_D1->setMaxAcceleration(1.0e6f); // Rampe aufheben → sofort einfahren
+            g_servo_D1->setMaxAcceleration(1.0e6f);
             g_servo_D1->setPulseWidth(D1_RETRACTED);
         }
         m_phase_ctr++;
@@ -328,7 +391,7 @@ static bool runDeliverPhase()
 {
     if (m_phase_idx == 0) {
         if (m_phase_ctr == 0)
-            g_servoTray->moveToAngle(m_target_angle);
+            trayMoveTo(m_target_angle);   // sichert enable falls Servo war aus
         m_phase_ctr++;
         if (g_servoTray->isAtTarget() || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
             m_phase_idx = 1; m_phase_ctr = 0;
@@ -349,13 +412,13 @@ static bool runDeliverPhase()
         const int   ph1  = JIGGLE_LOOPS / 3;
         const int   ph2  = 2 * JIGGLE_LOOPS / 3;
         if (m_phase_ctr == 0) {
-            g_servoTray->moveToAngle(m_target_angle - JIGGLE_AMPL_DEG);
+            trayMoveTo(m_target_angle - JIGGLE_AMPL_DEG);
             g_servo_D1->setPulseWidth(base + D1_JIGGLE_OFFSET);
         } else if (m_phase_ctr == ph1) {
-            g_servoTray->moveToAngle(m_target_angle + JIGGLE_AMPL_DEG);
+            trayMoveTo(m_target_angle + JIGGLE_AMPL_DEG);
             g_servo_D1->setPulseWidth(base - D1_JIGGLE_OFFSET);
         } else if (m_phase_ctr == ph2) {
-            g_servoTray->moveToAngle(m_target_angle);
+            trayMoveTo(m_target_angle);
             g_servo_D1->setPulseWidth(base);
         }
         m_phase_ctr++;
@@ -379,20 +442,27 @@ static bool runDeliverPhase()
     return true;
 }
 
-// Drehteller-Service: Warmup abwarten, dann jeden Loop update() aufrufen.
+// Drehteller-Service: Warmup abwarten, dann update() aufrufen wenn m_tray_moving=true.
+// Kein auto-disable — trayStop() wird explizit aufgerufen wenn fertig.
 static void serviceTray()
 {
     if (!g_servoTray) return;
+
+    // Warmup-Phase: Feedback kalibrieren (stop() → kein Bewegungsbefehl)
     if (!m_sf360_ready) {
         g_servoTray->stop();
         m_sf360_warmup_ctr++;
         if (m_sf360_warmup_ctr >= SF360_WARMUP_LOOPS &&
             g_servoTray->isFeedbackValid()) {
             m_sf360_ready = true;
-            g_servoTray->moveToAngle(0.0f); // Heim: Slot 0 (ROT=0°)
+            g_servoTray->disable();   // nach Warmup still halten bis all_sensors_active()
         }
         return;
     }
+
+    // P-Regler nur wenn explizit aktiviert
+    if (!m_tray_moving) return;
+
     g_servoTray->update();
 }
 
@@ -400,7 +470,7 @@ static void serviceTray()
 static void advanceTray()
 {
     m_target_angle = fmodf(m_target_angle + 90.0f, 360.0f);
-    g_servoTray->moveToAngle(m_target_angle);
+    trayMoveTo(m_target_angle);
 }
 
 // ---------------------------------------------------------------------------
@@ -439,6 +509,8 @@ void roboter_v30_1_init(int /*loops_per_second*/)
     g_servo_D1->calibratePulseMinMax(0.0500f, 0.1050f);   // M20 horizontal
     g_servo_D1->setMaxAcceleration(0.3f);
     g_servo_D2->calibratePulseMinMax(0.0200f, 0.1310f);   // M21 vertikal
+    g_servo_D1->enable(D1_RETRACTED);   // Arm von Anfang an eingefahren
+    g_servo_D2->enable(D2_UP);          // Arm von Anfang an oben
 
     g_lf->setRotationalVelocityControllerGains(KP, KP_NL);
     g_lf->setMaxWheelVelocity(MAX_SPEED);
@@ -538,16 +610,20 @@ void roboter_v30_1_task(DigitalOut& led)
     // Drehteller-Regelkreis jeden Loop bedienen.
     serviceTray();
 
+    // Ausrichtungs-Timer: 3s nach 0°-Ausrichtung → Servo abschalten
+    if (m_home_timer > 0) {
+        if (--m_home_timer == 0) trayStop();
+    }
+
     switch (m_state) {
 
         // ----------------------------------------------------------------
         case STATE_BLIND:
             g_M1->setVelocity(VEL_SIGN * BLIND_SPEED);
             g_M2->setVelocity(VEL_SIGN * BLIND_SPEED);
-            if (all_sensors_active()) {
-                g_servo_D1->enable(0.0f);   // D1 eingefahren
-                g_servo_D2->enable(1.0f);   // D2 oben
-                // Drehteller: serviceTray() homed bereits auf 0° sobald Warmup abgeschlossen.
+            if (all_sensors_active() && m_sf360_ready) {
+                trayMoveTo(0.0f);       // Tray zu 0° (ROT-Slot)
+                m_home_timer   = 150;   // 3 s ausgerichtet halten
                 m_straight_ctr = STRAIGHT_LOOPS;
                 m_state        = STATE_STRAIGHT;
             }
@@ -775,7 +851,7 @@ void roboter_v30_1_task(DigitalOut& led)
         // ----------------------------------------------------------------
         // CROSSING_STOP
         // ----------------------------------------------------------------
-        case STATE_CROSSING_STOP:
+        case STATE_CROSSING_STOP: {
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
 
@@ -794,9 +870,15 @@ void roboter_v30_1_task(DigitalOut& led)
                     m_action_color = m_color_pending;
             }
 
-            // Ende Farblese-Phase: Farbe fixieren + Arm starten (GRÜN/BLAU)
+            // Ende Farblese-Phase: Farbe fixieren + Drehteller auf Winkel + Arm starten
             if (m_crossing_ctr == CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 if (m_action_color == 0) m_action_color = m_color_fallback;
+                // Drehteller zum Farb-spezifischen Winkel (aus v29)
+                int slot = colorToSlot(m_action_color);
+                if (slot >= 0) {
+                    m_target_angle = COLOR_ANGLE[slot];
+                    trayMoveTo(m_target_angle);
+                }
                 if (m_action_color == 5 || m_action_color == 7) {
                     m_phase_idx       = 0;
                     m_phase_ctr       = 0;
@@ -821,6 +903,7 @@ void roboter_v30_1_task(DigitalOut& led)
                                m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
                 if (tray_ok) {
                 int exit_color     = m_action_color;
+                trayStop();            // Servo stoppen + deaktivieren
                 m_slowing          = false;
                 m_slow_ctr         = 0;
                 m_action_color     = 0;
@@ -851,6 +934,7 @@ void roboter_v30_1_task(DigitalOut& led)
                 } // tray_ok
             }
             break;
+        }
 
         // ================================================================
         // SMALL LINES
@@ -921,7 +1005,7 @@ void roboter_v30_1_task(DigitalOut& led)
         }
 
         // ----------------------------------------------------------------
-        case STATE_SMALL_CROSSING_STOP:
+        case STATE_SMALL_CROSSING_STOP: {
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
 
@@ -940,9 +1024,15 @@ void roboter_v30_1_task(DigitalOut& led)
                     m_action_color = m_color_pending;
             }
 
-            // Ende Farblese-Phase: Arm starten (GRÜN/BLAU)
+            // Ende Farblese-Phase: Drehteller auf Winkel + Arm starten
             if (m_small_crossing_ctr == SMALL_CROSSING_STOP_LOOPS - COLOR_READ_PHASE) {
                 if (m_action_color == 0) m_action_color = m_color_fallback;
+                // Drehteller zum Farb-spezifischen Winkel (aus v29)
+                int slot = colorToSlot(m_action_color);
+                if (slot >= 0) {
+                    m_target_angle = COLOR_ANGLE[slot];
+                    trayMoveTo(m_target_angle);
+                }
                 if (m_action_color == 5 || m_action_color == 7) {
                     m_phase_idx       = 0;
                     m_phase_ctr       = 0;
@@ -966,6 +1056,7 @@ void roboter_v30_1_task(DigitalOut& led)
                                m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
                 if (tray_ok) {
                 int exit_color     = m_action_color;
+                trayStop();            // Servo stoppen + deaktivieren
                 m_slowing          = false;
                 m_slow_ctr         = 0;
                 m_action_color     = 0;
@@ -993,6 +1084,7 @@ void roboter_v30_1_task(DigitalOut& led)
                 } // tray_ok
             }
             break;
+        }
 
         // ----------------------------------------------------------------
         case STATE_ROT_GELB_DRIVE: {
@@ -1028,6 +1120,14 @@ void roboter_v30_1_task(DigitalOut& led)
         // ROT_GELB_PAUSE — v29 Arm-Sequenz via runPickupPhase()
         // ----------------------------------------------------------------
         case STATE_ROT_GELB_PAUSE: {
+            static State prev_state = STATE_BLIND;  // verschieden von ROT_GELB_PAUSE → Entry-Code läuft beim ersten Eintritt
+            if (prev_state != m_state) {
+                trayMoveTo(m_target_angle);  // Servo aktivieren + auf Farbwinkel
+                m_phase_idx       = 0;
+                m_phase_ctr       = 0;
+                m_arm_retract_ctr = 1;
+                prev_state        = m_state;
+            }
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
 
@@ -1044,6 +1144,7 @@ void roboter_v30_1_task(DigitalOut& led)
                 bool tray_ok = g_servoTray->isAtTarget() ||
                                m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
             if (tray_ok) {
+                trayStop();            // Servo stoppen + deaktivieren
                 m_tray_timeout_ctr = 0;
                 m_color_delay_ctr = COLOR_READ_DELAY;
                 if (m_rot_gelb_is_small) {
@@ -1090,12 +1191,13 @@ void roboter_v30_1_reset(DigitalOut& led)
     g_cmd_M1 = g_cmd_M2 = 0.0f;
     if (g_servo_D1)  g_servo_D1->disable();
     if (g_servo_D2)  g_servo_D2->disable();
-    if (g_servoTray) g_servoTray->stop();
+    if (g_servoTray) { g_servoTray->stop(); g_servoTray->disable(); }
     if (g_np)        g_np->clear();
 
     m_state               = STATE_BLIND;
     m_sf360_warmup_ctr    = 0;
     m_sf360_ready         = false;
+    m_tray_moving         = false;
     m_target_angle        = 0.0f;
     m_straight_ctr        = 0;
     m_follow_ctr          = 0;
@@ -1130,6 +1232,8 @@ void roboter_v30_1_reset(DigitalOut& led)
     m_rot_gelb_is_small   = false;
     m_rot_gelb_color      = 0;
     m_color_fallback      = 0;
+    m_tray_moving         = false;
+    m_home_timer          = 0;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     led = 0;
 }

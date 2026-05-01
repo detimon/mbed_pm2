@@ -2,11 +2,15 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-01)
-- **`PROTOTYPE_03_V30_1` aktiv** in `test_config.h` — kompiliert, noch nicht auf Hardware getestet. V29 auskommentiert (Backup). V28 ebenfalls als Backup.
-- **V30_1 = v23_2 Basis + v29 Arm-Sequenz:** Zustandsmaschine, Linienfolge und advanceTray(+90°) aus v23_2. runPickupPhase()/runDeliverPhase() aus v29 übernommen (7-phasig: Tray-Warten→D2 partial→D1 aus→D2 voll→Jiggle±10°→D2 hoch→D1 ein). Servo-Kalibrierung: D1 (0.050–0.1050, setMaxAcceleration(0.3f)), D2 (0.0200–0.1310).
-- **V30_1 D1-Einfahren-Fix:** setMaxAcceleration(1.0e6f) am Beginn von Phase 6 (Einfahren) → Beschleunigungsrampe aufheben vor setPulseWidth(D1_RETRACTED=0.0f). Ursache: 0.3f/s² × Kalibrierungsbereich 0.055 = 0.0165 raw units/s² → 2.94s für Weg 0.65→0.0, mehr als RAISE_LOOPS=50 (1s).
-- **V30_1 Tray-Timeout:** m_tray_timeout_ctr + SF360_TIMEOUT_LOOPS=250 in allen Exit-Bedingungen (CROSSING_STOP, SMALL_CROSSING_STOP, ROT_GELB_PAUSE) — verhindert Hänger wenn isAtTarget() nach advanceTray() nie true wird.
-- **V30_1 Pickup-Tiefen:** D2_DOWN_GRUEN=0.07f (ROT+GRÜN), D2_DOWN_BLAU=0.28f (GELB+BLAU). Faustregel +0.01 ≈ 1.3mm höher. Noch nicht validiert — evtl. zu tief laut Hardware-Test.
+- **`PROTOTYPE_03_V30_1` aktiv** in `test_config.h`. V29 + V28 als Backup.
+- **BLAU-Logik (breite Balken) auf Hardware getestet und funktioniert** — Tray fährt auf Winkel, Jiggle läuft, Arm Pickup-Sequenz korrekt.
+- **ROT/GELB noch nicht getestet** — Jiggle + Arm-Sequenz in ROT_GELB_PAUSE. Bugs wurden in dieser Session gefixt (siehe unten).
+- **Servo-Enable/Disable komplett neu (v28-Pattern):** `m_tray_moving` Flag steuert ob serviceTray() update() aufruft. `trayMoveTo()` enables nur wenn bisher disabled (kein Stop-Puls-Glitch im Jiggle). `trayStop()` explizit an allen Exit-Punkten. Kein Auto-Disable mehr in serviceTray().
+- **runPickupPhase() neu (6 Phasen):** Phase 0: Tray→Winkel (trayMoveTo). Phase 1: D2 partial + Jiggle startet sofort. Phase 2: D1 extend + Jiggle+D1 synchron. Phase 3: D2 voll + Jiggle weiter. Phase 4: D2 hoch + Jiggle stoppt (moveToAngle→Mitte). Phase 5: D1 einfahren. Jiggle läuft via `applyJiggleTick()` + Static `s_jiggle_tick` (reset bei Phase 0→1).
+- **ROT_GELB_PAUSE prev_state Bug gefixt:** `static State prev_state = STATE_BLIND` (war fälschlich `STATE_ROT_GELB_PAUSE` → Entry-Code rannte nie → trayMoveTo() nie aufgerufen → kein Jiggle für ROT/GELB und letzten Balken).
+- **Phase 0 Safety:** beide runPickupPhase() und runDeliverPhase() rufen `trayMoveTo()` statt `moveToAngle()` in Phase 0 → Servo wird sicher eingeschaltet auch wenn er vorher deaktiviert war.
+- **STATE_BLIND Ausrichtung:** trayMoveTo(0°) bei all_sensors_active() + m_home_timer=150 (3s) → danach trayStop(). D1/D2 von _init() an in Heimposition (D1_RETRACTED, D2_UP).
+- **V30_1 Pickup-Tiefen:** D2_DOWN_GRUEN=0.07f (ROT+GRÜN), D2_DOWN_BLAU=0.28f (GELB+BLAU). +0.01 ≈ 1.3mm höher.
 
 ## Stack
 - Sprache: C++14
@@ -130,7 +134,11 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v29 (2026-05-01): ROT_GELB_DRIVE_LOOPS=85** (war 55) — STATE_COLOUR_DRIVE_PAST speed-cap auf LINE_BOOST_SCALE=0.65f statt 1.0f. Distanz konstant halten: 55/1.0 ≈ 85/0.65 ≈ gleiche ~120mm. ROT_GELB_ACCEL_LOOPS=20 (war 10).
 - **v29 (2026-04-30): ROT-Schwenk-Ursache identifiziert** — COLOUR_DRIVE_PAST: eingefrorener m_angle vom Balken-Standstill (wide_detection friert Winkel ein) + CURVE_BIAS=-0.26 rad in LineFollower. Fix (0.4s gerade fahren + applyLineFollowSpeedClamped) bekannt aber noch nicht aktiviert.
 - **v30_1 (2026-05-01): Neuer Arbeits-Zweig basierend auf v23_2** — 16 States, Countdown-Arm-Sequenz ersetzt durch runPickupPhase()/runDeliverPhase() aus v29. advanceTray(+90°) bleibt (kein farbbasierter Winkel). SF360_OFFSET=110°.
-- **v30_1 (2026-05-01): D1-Einfahren ohne Rampe** — setMaxAcceleration(1.0e6f) zu Beginn Phase 6 in runPickupPhase() und Phase 3 in runDeliverPhase(). Grund: 0.3f/s² Rampe braucht 2.94s für 0.65→0.0, RAISE_LOOPS=50 (1s) reicht nicht. setMaxAcceleration(1.0e6f) = sofort, dann 1s physische Bewegungszeit.
+- **v30_1 (2026-05-01): D1-Einfahren ohne Rampe** — setMaxAcceleration(1.0e6f) zu Beginn Phase 5 in runPickupPhase() und Phase 3 in runDeliverPhase(). Grund: 0.3f/s² Rampe braucht 2.94s für 0.65→0.0, RAISE_LOOPS=50 (1s) reicht nicht. setMaxAcceleration(1.0e6f) = sofort, dann 1s physische Bewegungszeit.
+- **v30_1 (2026-05-01): Servo-Enable/Disable Pattern (final):** `trayMoveTo(deg)` → enable nur wenn !m_tray_moving, dann moveToAngle(). `trayStop()` → stop()+disable()+m_tray_moving=false. `serviceTray()` → kein Auto-Disable, nur update() wenn m_tray_moving. Alle Disables explizit: after m_home_timer (Ausrichtung), at tray_ok in allen Stop-States.
+- **v30_1 (2026-05-01): runPickupPhase() 6-Phasen mit sofortigem Jiggle:** Jiggle via `applyJiggleTick(s_jiggle_tick)` in Phase 1-3 (static s_jiggle_tick, reset bei 0→1 Transition). Stoppt in Phase 4 (D2 hoch). D1-Jiggle synchron ab Phase 2 (D1 ausgefahren).
+- **v30_1 (2026-05-01): ROT_GELB_PAUSE prev_state Fix:** `static State prev_state = STATE_BLIND` statt STATE_ROT_GELB_PAUSE — damit Entry-Code (trayMoveTo + Phase-Reset) beim ersten Eintritt wirklich läuft.
+- **v30_1 (2026-05-01): Ausrichtung Drehteller:** Bei all_sensors_active() in STATE_BLIND → trayMoveTo(0.0f) + m_home_timer=150 (3s). Nach Timer: trayStop(). D1/D2 von Anfang an in Heimposition (enable in _init()).
 - **Servo setMaxAcceleration Kalibrierungs-Effekt (2026-05-01):** setMaxAcceleration(X) multipliziert X mit (pulse_max - pulse_min). Für D1 (0.050–0.105): effektive Beschleunigung = X * 0.055. Bei X=0.3 → 0.0165 raw/s². Distanz 0.65→0.0 = 0.03575 raw → 2.94s theoretisch. Für D2 (0.020–0.131): effektive Beschleunigung bei X=0.3 → 0.3 * 0.111 = 0.0333 raw/s².
 - **TEST_ARM_SEQUENCE (2026-04-30): Arm-Isolationstest** — `src/test_files/test_arm_sequence.cpp`, Single-File ohne .h. 10 Schritte: Homing→Tray+30°→M20 ausfahren→M21 partial→Tray+330° CW→M21 voll→Jiggle ±10°→Tray 45°→Jiggle ±5°→Arm hoch. Button-Logik: Knopf1=Start, Knopf2=Stop+Reset auf S1, Knopf3=Start erneut. Kein setMaxAcceleration auf M20 (V27-Werte). Tray +330° als 2×165° Substeps (verhindert 180°-Ambiguität bei shortest-path-Berechnung).
 - **Button-Pattern (2026-04-30):** Test-Module dürfen `BUTTON1` nicht direkt lesen — `main.cpp`-DebounceIn-ISR interceptiert. `_task()` läuft nur wenn `do_execute_main_task=true` (ungerade Knöpfe). `_reset()` wird bei geraden Knöpfen aufgerufen. `while(1)` in `_task()` blockiert main-Loop → stattdessen SEQ_DONE-State verwenden.
@@ -150,16 +158,15 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **`PROTOTYPE_03_V30_1` flashen (`pio run --target upload`) und Arm-Sequenz am ersten Balken testen:** Beobachten ob D1 nach Phase 6 vollständig eingefahren ist (D1_RETRACTED=0.0f), ob D2-Tiefe passt (D2_DOWN_GRUEN=0.07f für ROT/GRÜN, D2_DOWN_BLAU=0.28f für GELB/BLAU). Falls zu tief → Wert um 0.03–0.05 erhöhen (+0.01 ≈ 1.3mm). Falls Roboter nach erstem Paket stehen bleibt → Serial Monitor: prüfen ob State=CROSS_STOP oder REAL_FOLLOW (Tray-Timeout-Fix sollte das verhindern).
-2. **advanceTray() Winkel validieren:** Drehteller beginnt bei 0°, rückt nach jedem Pickup um +90° vor. Prüfen ob nach 4 Pickups die Slots ROT(0°)→GRÜN(90°)→BLAU(180°)→GELB(270°) mechanisch stimmen. SF360_OFFSET=110° ggf. anpassen.
-3. **V29 parallel testen** — falls V30_1 Probleme hat, V29 als Alternative (farbbasierte Drehteller-Winkel statt +90° blind).
+1. **ROT/GELB Jiggle + Arm testen:** V30_1 flashen (`pio run --target upload`), Roboter auf ROT- oder GELB-Karte positionieren. Beobachten: Tray fährt auf 0° (ROT) oder 270° (GELB) in CROSSING_STOP, Roboter fährt 10cm vor (ROT_GELB_DRIVE), dann in ROT_GELB_PAUSE Tray-Jiggle + D1/D2 Arm-Sequenz (Phase 0→1→2→3→4→5). Falls Jiggle fehlt → Serial Monitor prüfen ob STATE=ROT_GELB_PAUSE erreicht wird.
+2. **advanceTray() Winkel validieren:** Nach 4 Pickups Slots ROT(0°)→GRÜN(90°)→BLAU(180°)→GELB(270°) mechanisch prüfen. SF360_OFFSET=110° ggf. anpassen.
+3. **D2-Tiefen validieren:** D2_DOWN_GRUEN=0.07f (ROT/GRÜN), D2_DOWN_BLAU=0.28f (GELB/BLAU) — falls Greifer zu tief → um +0.03–0.05 erhöhen.
 
 ## Offene Fragen
-- **V30_1 Arm-Tiefen nicht hardware-validiert:** D2_DOWN_GRUEN=0.07f (ROT/GRÜN), D2_DOWN_BLAU=0.28f (GELB/BLAU) — aus v29 übernommen, noch nicht auf v30_1 Hardware getestet. Zu tief → erhöhen.
-- **V30_1 advanceTray Timing:** Nach advanceTray(+90°) wartet Exit-Bedingung auf isAtTarget() oder 5s Timeout. Falls Drehteller mechanical träge → Timeout feuert, Roboter fährt weiter ohne korrekte Drehteller-Position.
-- **V29 Fahrverhalten ungetestet:** LINE_BOOST_SCALE=0.65f, LINE_CRUISE_SCALE=0.5f — noch nie auf Hardware gelaufen. Ghost-Read-Verhalten mit MAX_LINE_STEER=1.2f unklar.
-- **ROT-Rechts-Schwenk in V29 COLOUR_DRIVE_PAST:** Ursache bekannt (CURVE_BIAS -0.26 rad + stale angle). In V30_1 nicht relevant (kein COLOUR_DRIVE_PAST State).
-- **Welche Version ist besser — V29 oder V30_1?** V29 farbbasierte Drehteller-Winkel vs. V30_1 +90° blind. V30_1 einfacher, V29 robuster gegen falsche Reihenfolge.
+- **ROT/GELB Jiggle in ROT_GELB_PAUSE nicht hardware-validiert:** prev_state Bug gefixt, aber noch nicht auf Hardware getestet. Falls kein Jiggle → prüfen ob trayMoveTo() in Phase 0 aufgerufen wird (m_tray_moving wird true).
+- **V30_1 Arm-Tiefen nicht validiert:** D2_DOWN_GRUEN=0.07f (ROT/GRÜN), D2_DOWN_BLAU=0.28f (GELB/BLAU) — zu tief → um +0.03–0.05 erhöhen (+0.01 ≈ 1.3mm).
+- **V30_1 advanceTray Timing:** Nach advanceTray(+90°) wartet Exit-Bedingung auf isAtTarget() oder 5s Timeout (SF360_TIMEOUT_LOOPS=250). Falls Drehteller mechanisch träge → Timeout feuert.
+- **serviceTray() kein Auto-Disable:** Servo bleibt aktiv bis explizit trayStop() aufgerufen wird. Bei abnormalem State-Exit (z.B. Reset mitten in Sequenz) → Servo könnte enabled bleiben. reset() ruft disable() auf, also nur Problem wenn State-Wechsel ohne reset().
 
 ## Session-Routine
 Am Ende jeder Session:
