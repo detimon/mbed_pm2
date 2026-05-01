@@ -1,11 +1,11 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-04-30)
-- **`PROTOTYPE_03_V29` aktiv** in `test_config.h` — V29 ist Kopie von V28 mit neuer Fahrrampe, kompiliert und bereit zum Flashen. V28 auskommentiert (unverändert als Backup).
-- **V29 Boost-Rampenprofil implementiert** — Ersetzt das alte Dreiphasenprofil (A: 0→MAX_SPEED, B: 1s volle Fahrt, C: Cruise): Neues Zweiphasenprofil: Phase A: Gerade Anlauframpe 0→LINE_BOOST_SCALE (0.65f=1.04 RPS) über RESTART_ACCEL_LOOPS=50 (1s). Phase B: Linienfolge bei 0.65f, bei Farberkennung Rampe auf LINE_CRUISE_SCALE (0.5f=0.8 RPS) über 13 Loops (260ms). SLOW_FACTOR und FOLLOW_FULL_LOOPS entfernt.
-- **V29 Ghost-Read-Schutz:** MAX_LINE_STEER=1.2f (Differenz-Clamp auf Radgeschwindigkeit). SensorBar-Angle-Clamp: MAX_ANGLE_STEP=0.15 rad=8.6° pro 4ms-Loop (250Hz). CURVE_BIAS=-0.26 rad in LineFollower bekannt als Ursache für Rechts-Schwenk bei ROT.
-- **ROT-Rechts-Schwenk-Problem** (COLOUR_DRIVE_PAST): Ursache identifiziert — eingefrorener Winkel beim Balken-Standstill + CURVE_BIAS. Fix (0.4s gerade + applyLineFollowSpeedClamped) implementiert und wieder rückgängig gemacht — noch nicht getestet ob nötig.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-01)
+- **`PROTOTYPE_03_V29` aktiv** in `test_config.h` — kompiliert, noch nicht auf Hardware getestet. V28 auskommentiert (Backup).
+- **V29 Anfahrrampen überall:** STATE_BACKWARD hatte bereits Rampe. STATE_COLOUR_DRIVE_PAST: ROT_GELB_DRIVE_LOOPS=85 (war 55, kompensiert für LINE_BOOST_SCALE=0.65f), ROT_GELB_ACCEL_LOOPS=20 (war 10), speed capped bei LINE_BOOST_SCALE. STATE_BLIND: zweiphasig — Phase A (50 Loops): driveStraight 0→BLIND_SPEED (beide Motoren gleich); Phase B (nach Rampe): applyLineFollowSpeedClamped(BLIND_SPEED) mit KP_FOLLOW=1.1/KP_NL_FOLLOW=0.7 (gleiche Gains wie STATE_FOLLOW → gleiche Ausrichtung).
+- **V29 STATE_BLIND Ausrichtung:** Ramp-first-then-linefollower Prinzip: während Anlauframpe kein Lenken (driveStraight), erst bei voller Geschwindigkeit übernimmt Linienfolger mit weichen Gains → B3/B4 am Strich, gleiche Ausrichtung wie STATE_FOLLOW am Ende.
+- **V29 Boost-Rampenprofil:** Phase A: Gerade 0→LINE_BOOST_SCALE (0.65f=1.04 RPS) über 50 Loops. Phase B: Linienfolge bei BOOST, bei Farberkennung Rampe auf LINE_CRUISE_SCALE (0.5f=0.8 RPS) über 13 Loops. MAX_LINE_STEER=1.2f Ghost-Read-Schutz.
 
 ## Stack
 - Sprache: C++14
@@ -125,6 +125,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v28 (2026-04-29): MAX_LINE_STEER=1.2f** — Clamp auf Radgeschwindigkeitsdifferenz in allen Linienfolge-States (LINE_FOLLOW, COLOUR_ASSUMPTION, SMALL_FOLLOW, SMALL_COLOUR_ASSUMPTION). Ghost-Reads erzeugen bis 3.2 RPS Diff → capped auf 1.2 = ~200mm Kurvenradius.
 - **v28 (2026-04-29): Dreiphasen-Geschwindigkeitsprofil** — Phase A: Rampe 0→MAX_SPEED (RESTART_ACCEL_LOOPS=50), Phase B: Volle Geschwindigkeit Linienfolge (FOLLOW_FULL_LOOPS=50), Phase C: Cruise bei LINE_CRUISE_SCALE (aktuell 0.5f, zu tief für Kurven → erhöhen auf 0.8f).
 - **v29 (2026-04-30): Boost-Rampenprofil** — Kopie von v28. Dreiphasenprofil ersetzt durch Zweiphasenprofil: Phase A: Gerade 0→LINE_BOOST_SCALE (0.65f) über 50 Loops. Phase B: Linienfolge bei BOOST, bei Farberkennung Rampe auf LINE_CRUISE_SCALE (0.5f) über 13 Loops. FOLLOW_FULL_LOOPS und SLOW_FACTOR entfernt. currentSlowRamp() rampiert BOOST→CRUISE statt 1.0→SLOW_FACTOR.
+- **v29 (2026-05-01): STATE_BLIND Anfahrrampe + Linienfolger** — Zweiphasig: Phase A (RESTART_ACCEL_LOOPS=50): `driveStraight(BLIND_SPEED * ramp)` — beide Motoren gleich, kein Lenken. Phase B: `applyLineFollowSpeedClamped(BLIND_SPEED)` mit `KP_FOLLOW=1.1f / KP_NL_FOLLOW=0.7f` (identisch zu STATE_FOLLOW). Ziel: gleiche Endausrichtung wie STATE_FOLLOW → gerades Rückwärtsfahren.
+- **v29 (2026-05-01): ROT_GELB_DRIVE_LOOPS=85** (war 55) — STATE_COLOUR_DRIVE_PAST speed-cap auf LINE_BOOST_SCALE=0.65f statt 1.0f. Distanz konstant halten: 55/1.0 ≈ 85/0.65 ≈ gleiche ~120mm. ROT_GELB_ACCEL_LOOPS=20 (war 10).
 - **v29 (2026-04-30): ROT-Schwenk-Ursache identifiziert** — COLOUR_DRIVE_PAST: eingefrorener m_angle vom Balken-Standstill (wide_detection friert Winkel ein) + CURVE_BIAS=-0.26 rad in LineFollower. Fix (0.4s gerade fahren + applyLineFollowSpeedClamped) bekannt aber noch nicht aktiviert.
 - **TEST_ARM_SEQUENCE (2026-04-30): Arm-Isolationstest** — `src/test_files/test_arm_sequence.cpp`, Single-File ohne .h. 10 Schritte: Homing→Tray+30°→M20 ausfahren→M21 partial→Tray+330° CW→M21 voll→Jiggle ±10°→Tray 45°→Jiggle ±5°→Arm hoch. Button-Logik: Knopf1=Start, Knopf2=Stop+Reset auf S1, Knopf3=Start erneut. Kein setMaxAcceleration auf M20 (V27-Werte). Tray +330° als 2×165° Substeps (verhindert 180°-Ambiguität bei shortest-path-Berechnung).
 - **Button-Pattern (2026-04-30):** Test-Module dürfen `BUTTON1` nicht direkt lesen — `main.cpp`-DebounceIn-ISR interceptiert. `_task()` läuft nur wenn `do_execute_main_task=true` (ungerade Knöpfe). `_reset()` wird bei geraden Knöpfen aufgerufen. `while(1)` in `_task()` blockiert main-Loop → stattdessen SEQ_DONE-State verwenden.
@@ -144,13 +146,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **`PROTOTYPE_03_V29` flashen (`pio run --target upload`) und Fahrtest machen:** Beobachten ob Boost-Rampenprofil (0→0.65 über 1s, dann 0.65 bis Farbe, dann 0.65→0.5 über 260ms) die Kurven verbessert. Falls ROT noch nach rechts schwenkt → in `prototype03_v29.cpp` STATE_COLOUR_DRIVE_PAST: erste 20 Loops auf `driveStraight(APPROACH_SPEED * ramp)` umstellen + `applyLineFollowSpeedClamped` danach. Falls Ghost-Reads zurückkehren → `MAX_LINE_STEER` von 1.2f auf 1.0f.
-2. **Pickup-Sequenz physisch validieren:** Beobachten ob Drehteller korrekt auf ROT=0°, GRÜN=90°, BLAU=180°, GELB=270° fährt. Falls Winkel falsch → SF360_OFFSET (aktuell 110°) anpassen. Falls D2_FULL_DOWN=0.28 nicht tief genug → auf 0.25 senken.
+1. **`PROTOTYPE_03_V29` flashen (`pio run --target upload`) und Intro-Sequenz testen:** Beobachten ob STATE_BLIND korrekt ausrichtet (Rampe gerade, dann Linienfolger hält B3/B4 auf Strich) und ob der Roboter nach STATE_BACKWARD gerade fährt. Falls immer noch schief → KP_FOLLOW/KP_NL_FOLLOW in STATE_BLIND justieren. Danach Boost-Rampenprofil beurteilen (0→0.65 über 1s, Kurvenverhalten).
+2. **Pickup-Sequenz physisch validieren:** Drehteller ROT=0°, GRÜN=90°, BLAU=180°, GELB=270° prüfen. SF360_OFFSET=110° ggf. anpassen. D2_FULL_DOWN=0.28 tief genug?
 3. **DELIVER-Phase testen** — erst nach validiertem Pickup.
 
 ## Offene Fragen
-- **ROT-Rechts-Schwenk in COLOUR_DRIVE_PAST:** Ursache bekannt (eingefrorener Winkel + CURVE_BIAS -0.26 rad). Fix bereit (0.4s gerade + applyLineFollowSpeedClamped), aber noch nicht auf Hardware getestet ob das Problem mit Boost-Rampe bereits besser ist.
-- **LINE_CRUISE_SCALE / LINE_BOOST_SCALE Tuning:** CRUISE=0.5f (0.8 RPS), BOOST=0.65f (1.04 RPS). Noch nicht auf Hardware getestet — Boost könnte zu hoch für enge Kurven sein → dann auf 0.55f senken.
+- **STATE_BLIND Ausrichtung nicht hardware-getestet:** Neues zweiphasiges Verhalten (driveStraight Rampe → KP_FOLLOW/KP_NL_FOLLOW Linienfolger) noch nie auf dem Roboter gelaufen. Kritisch für gerades Rückwärtsfahren.
+- **ROT-Rechts-Schwenk in COLOUR_DRIVE_PAST:** Ursache bekannt (eingefrorener Winkel + CURVE_BIAS -0.26 rad). Noch nicht getestet ob mit Boost-Rampe bereits besser.
+- **LINE_CRUISE_SCALE / LINE_BOOST_SCALE Tuning:** CRUISE=0.5f (0.8 RPS), BOOST=0.65f (1.04 RPS). Noch nicht auf Hardware getestet — Boost könnte zu hoch für enge Kurven → dann auf 0.55f senken.
 - **MAX_LINE_STEER Tuning:** 1.2f = ~200mm Mindest-Kurvenradius. Falls Ghost-Reads wieder auftreten → auf 1.0f.
 - **Drehteller-Winkel physisch validiert?** SF360_OFFSET=110° — ob ROT=0°, GRÜN=90°, BLAU=180°, GELB=270° mechanisch stimmen ist unbekannt.
 - **DELIVER-Phase ungetestet:** Schmallinie-Detection, Ablage-Sequenz, Slot-Reset.
