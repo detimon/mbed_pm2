@@ -2,10 +2,11 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-01)
-- **`PROTOTYPE_03_V29` aktiv** in `test_config.h` — kompiliert, noch nicht auf Hardware getestet. V28 auskommentiert (Backup).
-- **V29 Anfahrrampen überall:** STATE_BACKWARD hatte bereits Rampe. STATE_COLOUR_DRIVE_PAST: ROT_GELB_DRIVE_LOOPS=85 (war 55, kompensiert für LINE_BOOST_SCALE=0.65f), ROT_GELB_ACCEL_LOOPS=20 (war 10), speed capped bei LINE_BOOST_SCALE. STATE_BLIND: zweiphasig — Phase A (50 Loops): driveStraight 0→BLIND_SPEED (beide Motoren gleich); Phase B (nach Rampe): applyLineFollowSpeedClamped(BLIND_SPEED) mit KP_FOLLOW=1.1/KP_NL_FOLLOW=0.7 (gleiche Gains wie STATE_FOLLOW → gleiche Ausrichtung).
-- **V29 STATE_BLIND Ausrichtung:** Ramp-first-then-linefollower Prinzip: während Anlauframpe kein Lenken (driveStraight), erst bei voller Geschwindigkeit übernimmt Linienfolger mit weichen Gains → B3/B4 am Strich, gleiche Ausrichtung wie STATE_FOLLOW am Ende.
-- **V29 Boost-Rampenprofil:** Phase A: Gerade 0→LINE_BOOST_SCALE (0.65f=1.04 RPS) über 50 Loops. Phase B: Linienfolge bei BOOST, bei Farberkennung Rampe auf LINE_CRUISE_SCALE (0.5f=0.8 RPS) über 13 Loops. MAX_LINE_STEER=1.2f Ghost-Read-Schutz.
+- **`PROTOTYPE_03_V30_1` aktiv** in `test_config.h` — kompiliert, noch nicht auf Hardware getestet. V29 auskommentiert (Backup). V28 ebenfalls als Backup.
+- **V30_1 = v23_2 Basis + v29 Arm-Sequenz:** Zustandsmaschine, Linienfolge und advanceTray(+90°) aus v23_2. runPickupPhase()/runDeliverPhase() aus v29 übernommen (7-phasig: Tray-Warten→D2 partial→D1 aus→D2 voll→Jiggle±10°→D2 hoch→D1 ein). Servo-Kalibrierung: D1 (0.050–0.1050, setMaxAcceleration(0.3f)), D2 (0.0200–0.1310).
+- **V30_1 D1-Einfahren-Fix:** setMaxAcceleration(1.0e6f) am Beginn von Phase 6 (Einfahren) → Beschleunigungsrampe aufheben vor setPulseWidth(D1_RETRACTED=0.0f). Ursache: 0.3f/s² × Kalibrierungsbereich 0.055 = 0.0165 raw units/s² → 2.94s für Weg 0.65→0.0, mehr als RAISE_LOOPS=50 (1s).
+- **V30_1 Tray-Timeout:** m_tray_timeout_ctr + SF360_TIMEOUT_LOOPS=250 in allen Exit-Bedingungen (CROSSING_STOP, SMALL_CROSSING_STOP, ROT_GELB_PAUSE) — verhindert Hänger wenn isAtTarget() nach advanceTray() nie true wird.
+- **V30_1 Pickup-Tiefen:** D2_DOWN_GRUEN=0.07f (ROT+GRÜN), D2_DOWN_BLAU=0.28f (GELB+BLAU). Faustregel +0.01 ≈ 1.3mm höher. Noch nicht validiert — evtl. zu tief laut Hardware-Test.
 
 ## Stack
 - Sprache: C++14
@@ -128,6 +129,9 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v29 (2026-05-01): STATE_BLIND Anfahrrampe + Linienfolger** — Zweiphasig: Phase A (RESTART_ACCEL_LOOPS=50): `driveStraight(BLIND_SPEED * ramp)` — beide Motoren gleich, kein Lenken. Phase B: `applyLineFollowSpeedClamped(BLIND_SPEED)` mit `KP_FOLLOW=1.1f / KP_NL_FOLLOW=0.7f` (identisch zu STATE_FOLLOW). Ziel: gleiche Endausrichtung wie STATE_FOLLOW → gerades Rückwärtsfahren.
 - **v29 (2026-05-01): ROT_GELB_DRIVE_LOOPS=85** (war 55) — STATE_COLOUR_DRIVE_PAST speed-cap auf LINE_BOOST_SCALE=0.65f statt 1.0f. Distanz konstant halten: 55/1.0 ≈ 85/0.65 ≈ gleiche ~120mm. ROT_GELB_ACCEL_LOOPS=20 (war 10).
 - **v29 (2026-04-30): ROT-Schwenk-Ursache identifiziert** — COLOUR_DRIVE_PAST: eingefrorener m_angle vom Balken-Standstill (wide_detection friert Winkel ein) + CURVE_BIAS=-0.26 rad in LineFollower. Fix (0.4s gerade fahren + applyLineFollowSpeedClamped) bekannt aber noch nicht aktiviert.
+- **v30_1 (2026-05-01): Neuer Arbeits-Zweig basierend auf v23_2** — 16 States, Countdown-Arm-Sequenz ersetzt durch runPickupPhase()/runDeliverPhase() aus v29. advanceTray(+90°) bleibt (kein farbbasierter Winkel). SF360_OFFSET=110°.
+- **v30_1 (2026-05-01): D1-Einfahren ohne Rampe** — setMaxAcceleration(1.0e6f) zu Beginn Phase 6 in runPickupPhase() und Phase 3 in runDeliverPhase(). Grund: 0.3f/s² Rampe braucht 2.94s für 0.65→0.0, RAISE_LOOPS=50 (1s) reicht nicht. setMaxAcceleration(1.0e6f) = sofort, dann 1s physische Bewegungszeit.
+- **Servo setMaxAcceleration Kalibrierungs-Effekt (2026-05-01):** setMaxAcceleration(X) multipliziert X mit (pulse_max - pulse_min). Für D1 (0.050–0.105): effektive Beschleunigung = X * 0.055. Bei X=0.3 → 0.0165 raw/s². Distanz 0.65→0.0 = 0.03575 raw → 2.94s theoretisch. Für D2 (0.020–0.131): effektive Beschleunigung bei X=0.3 → 0.3 * 0.111 = 0.0333 raw/s².
 - **TEST_ARM_SEQUENCE (2026-04-30): Arm-Isolationstest** — `src/test_files/test_arm_sequence.cpp`, Single-File ohne .h. 10 Schritte: Homing→Tray+30°→M20 ausfahren→M21 partial→Tray+330° CW→M21 voll→Jiggle ±10°→Tray 45°→Jiggle ±5°→Arm hoch. Button-Logik: Knopf1=Start, Knopf2=Stop+Reset auf S1, Knopf3=Start erneut. Kein setMaxAcceleration auf M20 (V27-Werte). Tray +330° als 2×165° Substeps (verhindert 180°-Ambiguität bei shortest-path-Berechnung).
 - **Button-Pattern (2026-04-30):** Test-Module dürfen `BUTTON1` nicht direkt lesen — `main.cpp`-DebounceIn-ISR interceptiert. `_task()` läuft nur wenn `do_execute_main_task=true` (ungerade Knöpfe). `_reset()` wird bei geraden Knöpfen aufgerufen. `while(1)` in `_task()` blockiert main-Loop → stattdessen SEQ_DONE-State verwenden.
 - **v25 ist aktiver Arbeits-Zweig** (2026-04-28) — leeres Skeleton, bereit zum Befüllen. v24 = Kopie v23 als prototype03-Prefix (Backup). v23 = letzter getesteter Stand, unverändert.
@@ -146,17 +150,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **`PROTOTYPE_03_V29` flashen (`pio run --target upload`) und Intro-Sequenz testen:** Beobachten ob STATE_BLIND korrekt ausrichtet (Rampe gerade, dann Linienfolger hält B3/B4 auf Strich) und ob der Roboter nach STATE_BACKWARD gerade fährt. Falls immer noch schief → KP_FOLLOW/KP_NL_FOLLOW in STATE_BLIND justieren. Danach Boost-Rampenprofil beurteilen (0→0.65 über 1s, Kurvenverhalten).
-2. **Pickup-Sequenz physisch validieren:** Drehteller ROT=0°, GRÜN=90°, BLAU=180°, GELB=270° prüfen. SF360_OFFSET=110° ggf. anpassen. D2_FULL_DOWN=0.28 tief genug?
-3. **DELIVER-Phase testen** — erst nach validiertem Pickup.
+1. **`PROTOTYPE_03_V30_1` flashen (`pio run --target upload`) und Arm-Sequenz am ersten Balken testen:** Beobachten ob D1 nach Phase 6 vollständig eingefahren ist (D1_RETRACTED=0.0f), ob D2-Tiefe passt (D2_DOWN_GRUEN=0.07f für ROT/GRÜN, D2_DOWN_BLAU=0.28f für GELB/BLAU). Falls zu tief → Wert um 0.03–0.05 erhöhen (+0.01 ≈ 1.3mm). Falls Roboter nach erstem Paket stehen bleibt → Serial Monitor: prüfen ob State=CROSS_STOP oder REAL_FOLLOW (Tray-Timeout-Fix sollte das verhindern).
+2. **advanceTray() Winkel validieren:** Drehteller beginnt bei 0°, rückt nach jedem Pickup um +90° vor. Prüfen ob nach 4 Pickups die Slots ROT(0°)→GRÜN(90°)→BLAU(180°)→GELB(270°) mechanisch stimmen. SF360_OFFSET=110° ggf. anpassen.
+3. **V29 parallel testen** — falls V30_1 Probleme hat, V29 als Alternative (farbbasierte Drehteller-Winkel statt +90° blind).
 
 ## Offene Fragen
-- **STATE_BLIND Ausrichtung nicht hardware-getestet:** Neues zweiphasiges Verhalten (driveStraight Rampe → KP_FOLLOW/KP_NL_FOLLOW Linienfolger) noch nie auf dem Roboter gelaufen. Kritisch für gerades Rückwärtsfahren.
-- **ROT-Rechts-Schwenk in COLOUR_DRIVE_PAST:** Ursache bekannt (eingefrorener Winkel + CURVE_BIAS -0.26 rad). Noch nicht getestet ob mit Boost-Rampe bereits besser.
-- **LINE_CRUISE_SCALE / LINE_BOOST_SCALE Tuning:** CRUISE=0.5f (0.8 RPS), BOOST=0.65f (1.04 RPS). Noch nicht auf Hardware getestet — Boost könnte zu hoch für enge Kurven → dann auf 0.55f senken.
-- **MAX_LINE_STEER Tuning:** 1.2f = ~200mm Mindest-Kurvenradius. Falls Ghost-Reads wieder auftreten → auf 1.0f.
-- **Drehteller-Winkel physisch validiert?** SF360_OFFSET=110° — ob ROT=0°, GRÜN=90°, BLAU=180°, GELB=270° mechanisch stimmen ist unbekannt.
-- **DELIVER-Phase ungetestet:** Schmallinie-Detection, Ablage-Sequenz, Slot-Reset.
+- **V30_1 Arm-Tiefen nicht hardware-validiert:** D2_DOWN_GRUEN=0.07f (ROT/GRÜN), D2_DOWN_BLAU=0.28f (GELB/BLAU) — aus v29 übernommen, noch nicht auf v30_1 Hardware getestet. Zu tief → erhöhen.
+- **V30_1 advanceTray Timing:** Nach advanceTray(+90°) wartet Exit-Bedingung auf isAtTarget() oder 5s Timeout. Falls Drehteller mechanical träge → Timeout feuert, Roboter fährt weiter ohne korrekte Drehteller-Position.
+- **V29 Fahrverhalten ungetestet:** LINE_BOOST_SCALE=0.65f, LINE_CRUISE_SCALE=0.5f — noch nie auf Hardware gelaufen. Ghost-Read-Verhalten mit MAX_LINE_STEER=1.2f unklar.
+- **ROT-Rechts-Schwenk in V29 COLOUR_DRIVE_PAST:** Ursache bekannt (CURVE_BIAS -0.26 rad + stale angle). In V30_1 nicht relevant (kein COLOUR_DRIVE_PAST State).
+- **Welche Version ist besser — V29 oder V30_1?** V29 farbbasierte Drehteller-Winkel vs. V30_1 +90° blind. V30_1 einfacher, V29 robuster gegen falsche Reihenfolge.
 
 ## Session-Routine
 Am Ende jeder Session:
