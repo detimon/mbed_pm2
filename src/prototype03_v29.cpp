@@ -85,8 +85,9 @@ static const int   SMALL_FOLLOW_START_GUARD = static_cast<int>(781 * SPEED_SCALE
 static const int   SMALL_REENTRY_GUARD      = static_cast<int>(100 * SPEED_SCALE);
 
 // Drive-past distance (~120 mm) for ROT/GELB
-static const int ROT_GELB_DRIVE_LOOPS = 55;
-static const int ROT_GELB_ACCEL_LOOPS = 10;
+// Speed capped at LINE_BOOST_SCALE (0.65) → DRIVE_LOOPS scaled up: 55/0.65≈85
+static const int ROT_GELB_DRIVE_LOOPS = 85;
+static const int ROT_GELB_ACCEL_LOOPS = 20;
 static const int ROT_GELB_BRAKE_LOOPS = 12;
 
 // 180° servo positions (TEST_ARM_SEQUENCE validated 2026-04-30)
@@ -763,17 +764,30 @@ void roboter_v29_task(DigitalOut& led)
         // ------------------------------------------------------------------
         // Phase 0 — INTRO sequence
         // ------------------------------------------------------------------
-        case STATE_BLIND:
-            driveStraight(BLIND_SPEED);
+        case STATE_BLIND: {
+            float ramp = (m_accel_ctr < RESTART_ACCEL_LOOPS)
+                             ? static_cast<float>(m_accel_ctr + 1) /
+                               static_cast<float>(RESTART_ACCEL_LOOPS)
+                             : 1.0f;
+            if (m_accel_ctr < RESTART_ACCEL_LOOPS) {
+                m_accel_ctr++;
+                driveStraight(BLIND_SPEED * ramp);  // Anfahrrampe: beide Motoren gleich
+            } else {
+                // Volle Geschwindigkeit — gleiche Gains wie STATE_FOLLOW → gleiche Ausrichtung
+                g_lf->setRotationalVelocityControllerGains(KP_FOLLOW, KP_NL_FOLLOW);
+                applyLineFollowSpeedClamped(BLIND_SPEED);
+            }
             // Wait for bar AND tray feedback (like TEST_PARALLAX_360 explicit warmup).
             // m_sf360_ready becomes true after 25 loops of stop() + isFeedbackValid().
             if (sevenOfEightActive() && m_sf360_ready) {
                 g_servoHoriz->enable(D1_RETRACTED);
                 g_servoVert ->enable(D2_UP);
                 m_straight_ctr = STRAIGHT_LOOPS;
+                m_accel_ctr    = 0;
                 m_state = STATE_STRAIGHT;
             }
             break;
+        }
 
         case STATE_STRAIGHT:
             driveStraight(STRAIGHT_SPEED);
@@ -1010,7 +1024,7 @@ void roboter_v29_task(DigitalOut& led)
             } else {
                 ramp = 1.0f;
             }
-            applyLineFollowSpeed(ramp);
+            applyLineFollowSpeedClamped(ramp * LINE_BOOST_SCALE);
             m_drive_past_ctr++;
             if (m_drive_past_ctr >= ROT_GELB_DRIVE_LOOPS) {
                 stopMotors();
