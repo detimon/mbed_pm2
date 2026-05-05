@@ -314,6 +314,13 @@
     #define TEST_RESET(led)   roboter_v31_1_reset(led)
     #define TEST_PRINT()      roboter_v31_1_print()
 
+#elif defined(PROTOTYPE_03_V32_02)
+    #include "prototype03_v32_02.h"
+    #define TEST_INIT(lps)    roboter_v32_02_init(lps)
+    #define TEST_TASK(led)    roboter_v32_02_task(led)
+    #define TEST_RESET(led)   roboter_v32_02_reset(led)
+    #define TEST_PRINT()      roboter_v32_02_print()
+
 #elif defined(TEST_LOGIC_ARM_STANDARD)
     #include "test_files/test_logic_arm_standard.h"
     #define TEST_INIT(lps)    logic_arm_standard_init(lps)

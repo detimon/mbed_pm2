@@ -35,7 +35,8 @@
 // #define PROTOTYPE_03_V28
 // #define PROTOTYPE_03_V29
 // #define PROTOTYPE_03_V30_1
-#define PROTOTYPE_03_V31_1
+// #define PROTOTYPE_03_V31_1
+#define PROTOTYPE_03_V32_02
 // alti versione, wo no guet gsi sind
 
 // --- Farbsensor (wichtig für Kalibrierung) ---

@@ -2,11 +2,14 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-05)
-- **`PROTOTYPE_03_V31_1` aktiv** in `test_config.h`. V30_1 + V29 als Backup.
-- **V31_1 = Kopie von V30_1** mit zwei Fixes für 360°-Servo-Ausrichtung. Kompiliert erfolgreich, noch nicht geflasht/getestet.
-- **Fix: Sofortige Tray-Ausrichtung bei Farberkennung** — Tray startet `trayMoveTo()` sofort wenn Farbe bekannt (aus Anfahrt via `m_color_fallback` oder sobald stabile Lesung in CROSSING_STOP). Vorher: 25 Loops (0.5s) Wartezeit bevor Tray sich bewegt.
-- **Fix: `m_color_fallback` Reset** — wird jetzt bei jedem Exit aus CROSSING_STOP, SMALL_CROSSING_STOP und ROT_GELB_PAUSE auf 0 gesetzt. Vorher: alte Farbe blieb erhalten → nächster Balken bekam falschen Winkel → Tray fuhr zum ersten Winkel zurück.
-- **V31_1 Pickup-Tiefen:** D2_DOWN_GRUEN=0.05f (ROT+GRÜN), D2_DOWN_BLAU=0.22f (GELB+BLAU). +0.01 ≈ 1.3mm höher.
+- **`PROTOTYPE_03_V32_02` aktiv** in `test_config.h`. V31_1 als Backup.
+- **V32_02 = Kopie von V31_1** mit Ablege-Sequenz (`runDeliverPhase`) überall — `runPickupPhase` komplett entfernt. Kompiliert erfolgreich, noch nicht vollständig getestet.
+- **V32_02 Änderungen gegenüber V31_1:**
+  - `runPickupPhase()` in CROSSING_STOP + ROT_GELB_PAUSE → ersetzt durch `runDeliverPhase()`
+  - GRÜN (5) + BLAU (7): `COLOR_STABLE_CNT` / `COLOR_STOP_STABLE_CNT` auf **1** reduziert (ROT/GELB bleiben bei 3)
+  - `ROT_GELB_DRIVE_LOOPS`: 55 → **51** (~0.8cm weniger Fahrdistanz)
+  - Farblesen in `STATE_REAL_APPROACH` entfernt (kein `m_color_fallback` vor erstem Balken) → verhindert falsche Tray-Ausrichtung in Anfahrt
+- **Bekanntes Risiko:** Ohne Fallback aus REAL_APPROACH muss Farbe zwingend in 0.5s Lesefenster bei CROSSING_STOP erkannt werden. Bei GRÜN/BLAU reicht 1 Lesung. ROT/GELB brauchen noch 3 stabile Lesungen.
 
 ## Stack
 - Sprache: C++14
@@ -136,6 +139,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v30_1 (2026-05-01): ROT_GELB_PAUSE prev_state Fix:** `static State prev_state = STATE_BLIND` statt STATE_ROT_GELB_PAUSE — damit Entry-Code (trayMoveTo + Phase-Reset) beim ersten Eintritt wirklich läuft.
 - **v30_1 (2026-05-01): Ausrichtung Drehteller:** Bei all_sensors_active() in STATE_BLIND → trayMoveTo(0.0f) + m_home_timer=150 (3s). Nach Timer: trayStop(). D1/D2 von Anfang an in Heimposition (enable in _init()).
 - **v31_1 (2026-05-05): Sofortige Tray-Ausrichtung** — trayMoveTo() wird sofort bei Entry in CROSSING_STOP aufgerufen wenn `m_color_fallback` gesetzt ist (aus Anfahrt/Linienfolge). Zusätzlich: sobald `m_action_color` erstmals während Read-Phase gesetzt wird → sofort trayMoveTo(). Vorher: Tray wartete immer 25 Loops (0.5s) bevor er sich bewegt.
+- **v32_02 (2026-05-05): Ablege-Sequenz überall** — `runPickupPhase()` komplett durch `runDeliverPhase()` ersetzt in CROSSING_STOP + ROT_GELB_PAUSE. SMALL_CROSSING_STOP war bereits deliver. Roboter legt jetzt an allen 8 Stops ab statt 4× aufnehmen + 4× ablegen.
+- **v32_02 (2026-05-05): GRÜN+BLAU COLOR_STABLE_CNT=1** — Farberkennung für GRÜN (5) und BLAU (7) reicht nach 1 stabiler Lesung statt 3. ROT/GELB bleiben bei 3. Grund: ohne m_color_fallback aus REAL_APPROACH muss Farbe im 0.5s Stopp-Fenster sicher erkannt werden.
+- **v32_02 (2026-05-05): Kein Farblesen in STATE_REAL_APPROACH** — m_color_fallback wird beim ersten Balken nicht mehr aus der Anfahrt gesetzt. Verhindert falsche Tray-Ausrichtung durch Phantom-Farbreads vor dem Stopp. Konsequenz: Tray bewegt sich erst nach Stopp wenn CROSSING_STOP Farbe liest.
+- **v32_02 (2026-05-05): ROT_GELB_DRIVE_LOOPS=51** — war 55, ~0.8cm weniger Fahrdistanz (2.2mm/Loop bei ~12cm Gesamtstrecke).
 - **v31_1 (2026-05-05): m_color_fallback Reset bei allen Exits** — `m_color_fallback = 0` in CROSSING_STOP-Exit, SMALL_CROSSING_STOP-Exit und ROT_GELB_PAUSE-Exit. Verhindert dass alte Farbe beim nächsten Balken den Tray zum falschen Winkel schickt.
 - **v30_1 (2026-05-02): trayStop() nur für GRÜN/BLAU vor Weiterfahrt** — ROT/GELB-Exit aus CROSSING_STOP und SMALL_CROSSING_STOP ruft trayStop() NICHT auf. Servo hält Farb-Winkel aktiv während ROT_GELB_DRIVE. trayStop() erst am Ende von ROT_GELB_PAUSE. Grund: ohne Torque dreht Tray während Fahrt weg → Phase 0 muss erst korrigieren → Jiggle verzögert oder fehlt.
 - **v30_1 (2026-05-02): Phase 0 Stale-Error-Fix** — `fresh_at_target = (m_phase_ctr >= 2) && isAtTarget()` in runPickupPhase() und runDeliverPhase(). Verhindert sofortigen Phase-0-Exit mit eingefrorenem m_error vom letzten disable() (update() noch nicht gelaufen).
@@ -159,15 +166,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Flashen + Serial Monitor testen:** `pio run --target upload`, dann `pio device monitor`. Roboter starten und bei erstem breiten Querbalken beobachten: (a) Zeigt Serial Monitor sofort nach Stopp `tray=IST/SOLL` mit sich änderndem IST-Wert? → Tray dreht sofort. (b) Zeigt `act=GRÜN` oder `act=BLAU` die korrekte Farbe? (c) Geht Tray nach Pickup (`ph=5` fertig) zum richtigen NÄCHSTEN Winkel (+90°) und NICHT zurück zum ersten?
-2. **Zweiten + dritten Balken prüfen:** Tray darf beim 2. Balken NICHT zum Winkel des 1. Balkens zurückfahren. Falls doch → `m_color_fallback` wird trotz Reset irgendwo falsch gesetzt (melden mit Serial-Output).
-3. **ROT/GELB Jiggle prüfen:** Bei ROT/GELB-Balken: zeigt Serial Monitor in RG_PAUSE `ph=1`? Falls ja → Jiggle läuft.
+1. **V32_02 flashen + testen:** `pio run --target upload`, dann `pio device monitor`. Pro Balken prüfen: (a) Serial zeigt `act=FARBE` korrekt? (b) `tray=IST/SOLL` ändert sich nach Stopp? (c) Ablege-Sequenz (`ph=0→1→2→3`) läuft durch? (d) Bei ROT/GELB: fährt er ~0.8cm weniger weit als vorher?
+2. **Falls ROT/GELB Farbe nicht erkannt (act=0):** `COLOR_STABLE_CNT` für ROT (3) und GELB (4) ebenfalls auf 1 reduzieren — gleiche Änderung wie GRÜN/BLAU.
+3. **Falls Tray bei erstem Balken trotz Farberkennung nicht dreht:** Prüfen ob `m_sf360_ready=true` und `m_tray_moving` nach Farberkennung gesetzt (Serial-Output auswerten).
 
 ## Offene Fragen
-- **Tray-Ausrichtung beim 1. Balken noch nicht validiert** — Fix implementiert (sofort trayMoveTo bei Farberkennung), braucht Hardware-Test. Falls Tray trotzdem nicht dreht → prüfen ob `m_color_fallback` während REAL_APPROACH überhaupt gesetzt wird (Farbe zu spät erkannt?).
-- **Bug: Winkelzuordnung GRÜN/BLAU physisch falsch** — Code hat korrekte Werte (GRÜN=90°, GELB=270°). Ursache unklar — braucht Serial Monitor: `act=X` und `tray=IST/SOLL` bei GRÜN/BLAU Balken beobachten.
-- **V31_1 Arm-Tiefen nicht validiert:** D2_DOWN_GRUEN=0.05f (ROT/GRÜN), D2_DOWN_BLAU=0.22f (GELB/BLAU) — evtl. zu tief → um +0.03–0.05 erhöhen (+0.01 ≈ 1.3mm).
-- **serviceTray() kein Auto-Disable:** Servo bleibt aktiv bis explizit trayStop() aufgerufen wird. reset() ruft disable() auf, also nur Problem wenn State-Wechsel ohne reset().
+- **V32_02 Ablege-Sequenz nicht validiert** — Gesamtlauf mit allen 8 Stops noch nicht getestet. Insbesondere: läuft `runDeliverPhase()` an breiten Balken korrekt durch (ph=0→1→2→3)?
+- **ROT/GELB Farberkennung evtl. zu streng** — ROT/GELB brauchen noch 3 stabile Lesungen; falls sie am Stopp nicht erkannt werden → act=0, kein Arm. Falls Problem auftritt → auf 1 reduzieren wie GRÜN/BLAU.
+- **ROT_GELB_DRIVE_LOOPS=51 nicht validiert** — 0.8cm Reduktion von 55→51 (≈2.2mm/Loop). Evtl. Feinabstimmung nötig (+/−1 Loop).
+- **Arm-Tiefen V32_02 nicht validiert:** D2_DOWN_GRUEN=0.05f, D2_DOWN_BLAU=0.22f. +0.01 ≈ 1.3mm höher falls zu tief.
+- **Linefollower-Problem mit unebener Matte identifiziert** — IR-Sensor aktiviert sich wenn zu nah an weissem Papier (Proximity-Effekt). Softwarelösung: SENSOR_THRESHOLD erhöhen (0.40f → 0.55f). Noch nicht implementiert.
 
 ## Session-Routine
 Am Ende jeder Session:
