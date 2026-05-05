@@ -1,15 +1,20 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-05)
-- **`PROTOTYPE_03_V32_02` aktiv** in `test_config.h`. V31_1 als Backup.
-- **V32_02 = Kopie von V31_1** mit Ablege-Sequenz (`runDeliverPhase`) überall — `runPickupPhase` komplett entfernt. Kompiliert erfolgreich, noch nicht vollständig getestet.
-- **V32_02 Änderungen gegenüber V31_1:**
-  - `runPickupPhase()` in CROSSING_STOP + ROT_GELB_PAUSE → ersetzt durch `runDeliverPhase()`
-  - GRÜN (5) + BLAU (7): `COLOR_STABLE_CNT` / `COLOR_STOP_STABLE_CNT` auf **1** reduziert (ROT/GELB bleiben bei 3)
-  - `ROT_GELB_DRIVE_LOOPS`: 55 → **51** (~0.8cm weniger Fahrdistanz)
-  - Farblesen in `STATE_REAL_APPROACH` entfernt (kein `m_color_fallback` vor erstem Balken) → verhindert falsche Tray-Ausrichtung in Anfahrt
-- **Bekanntes Risiko:** Ohne Fallback aus REAL_APPROACH muss Farbe zwingend in 0.5s Lesefenster bei CROSSING_STOP erkannt werden. Bei GRÜN/BLAU reicht 1 Lesung. ROT/GELB brauchen noch 3 stabile Lesungen.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06)
+- **`PROTOTYPE_03_V33_03` aktiv** in `test_config.h`. V32_02 als Backup.
+- **V33_03 = Kopie von V32_02** mit NeoPixel-Farbanzeige, m_approach_fallback, angepassten Arm-Tiefen und mehreren Jiggle-Fixes.
+- **V33_03 Änderungen gegenüber V32_02:**
+  - NeoPixel (PC_5): zeigt Live-Farblesung 50× pro Sekunde (dimm: r/g/b=60)
+  - `m_approach_fallback`: Farbe wird während REAL_APPROACH gelesen → letzter Fallback wenn CROSSING_STOP nichts liest
+  - D2-Tiefen angehoben: `D2_DOWN_BLAU=0.24f` (war 0.22), `D2_DOWN_GRUEN=0.07f` (war 0.05)
+  - `SF360_TIMEOUT_LOOPS`: 250 → **100** (Phase 0 wartet max. 2s auf Tray statt 5s)
+  - GRÜN/BLAU arm-Start **sofort bei CROSSING_STOP-Eintritt** wenn `m_color_fallback` gesetzt (nicht erst bei ctr==75)
+  - SMALL_CROSSING_STOP reading block startet arm für GRÜN/BLAU sofort bei Erkennung (nicht nur bei ctr==75)
+  - SMALL_CROSSING_STOP ctr==75 fallback: `&& m_arm_retract_ctr == 0` Guard (verhindert Arm-Reset wenn bereits läuft)
+  - Reading blocks nutzen `m_current_color` statt zweitem `g_cs->getColor()`-Call
+  - `m_action_color = m_rot_gelb_color` vor ROT_GELB_PAUSE (GELB-Tiefen-Bug: depthForColor(0) gab immer GRUEN-Tiefe statt BLAU-Tiefe)
+- **STATUS: Jiggle funktioniert IMMERNOCH NICHT** — trotz aller obigen Fixes. Kompiliert erfolgreich. Nicht klar ob ph=0→1→2→3 durchläuft oder irgendwo steckt.
 
 ## Stack
 - Sprache: C++14
@@ -143,6 +148,9 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v32_02 (2026-05-05): GRÜN+BLAU COLOR_STABLE_CNT=1** — Farberkennung für GRÜN (5) und BLAU (7) reicht nach 1 stabiler Lesung statt 3. ROT/GELB bleiben bei 3. Grund: ohne m_color_fallback aus REAL_APPROACH muss Farbe im 0.5s Stopp-Fenster sicher erkannt werden.
 - **v32_02 (2026-05-05): Kein Farblesen in STATE_REAL_APPROACH** — m_color_fallback wird beim ersten Balken nicht mehr aus der Anfahrt gesetzt. Verhindert falsche Tray-Ausrichtung durch Phantom-Farbreads vor dem Stopp. Konsequenz: Tray bewegt sich erst nach Stopp wenn CROSSING_STOP Farbe liest.
 - **v32_02 (2026-05-05): ROT_GELB_DRIVE_LOOPS=51** — war 55, ~0.8cm weniger Fahrdistanz (2.2mm/Loop bei ~12cm Gesamtstrecke).
+- **v33_03 (2026-05-06): NeoPixel an PC_5** — Live-Farbanzeige 50Hz, dimm (r/g/b=60 statt 255). Für helle Anzeige beim Stopp: `setNeoColor()` in reading blocks. Überschrieben von Live-Loop, aber korrekt beim Halt sichtbar.
+- **v33_03 (2026-05-06): Jiggle-Fix-Versuch — alle Code-Pfade behoben, Jiggle immernoch nicht sichtbar** — GRÜN/BLAU arm-Start bei CROSSING_STOP-Eintritt; GELB depthForColor-Bug (m_action_color=0 → m_rot_gelb_color restored); Phase-Reset-Guard; Timeout 250→100. Nächster Debug-Schritt: Serial Monitor ph=-Counter live beobachten.
+- **v33_03 (2026-05-06): m_approach_fallback** — liest Farbe während REAL_APPROACH als letzten Fallback wenn CROSSING_STOP Lese-Fenster nichts erkennt. Wird nur in CROSSING_STOP ctr==75 als Notfall genutzt.
 - **v31_1 (2026-05-05): m_color_fallback Reset bei allen Exits** — `m_color_fallback = 0` in CROSSING_STOP-Exit, SMALL_CROSSING_STOP-Exit und ROT_GELB_PAUSE-Exit. Verhindert dass alte Farbe beim nächsten Balken den Tray zum falschen Winkel schickt.
 - **v30_1 (2026-05-02): trayStop() nur für GRÜN/BLAU vor Weiterfahrt** — ROT/GELB-Exit aus CROSSING_STOP und SMALL_CROSSING_STOP ruft trayStop() NICHT auf. Servo hält Farb-Winkel aktiv während ROT_GELB_DRIVE. trayStop() erst am Ende von ROT_GELB_PAUSE. Grund: ohne Torque dreht Tray während Fahrt weg → Phase 0 muss erst korrigieren → Jiggle verzögert oder fehlt.
 - **v30_1 (2026-05-02): Phase 0 Stale-Error-Fix** — `fresh_at_target = (m_phase_ctr >= 2) && isAtTarget()` in runPickupPhase() und runDeliverPhase(). Verhindert sofortigen Phase-0-Exit mit eingefrorenem m_error vom letzten disable() (update() noch nicht gelaufen).
@@ -166,16 +174,17 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **V32_02 flashen + testen:** `pio run --target upload`, dann `pio device monitor`. Pro Balken prüfen: (a) Serial zeigt `act=FARBE` korrekt? (b) `tray=IST/SOLL` ändert sich nach Stopp? (c) Ablege-Sequenz (`ph=0→1→2→3`) läuft durch? (d) Bei ROT/GELB: fährt er ~0.8cm weniger weit als vorher?
-2. **Falls ROT/GELB Farbe nicht erkannt (act=0):** `COLOR_STABLE_CNT` für ROT (3) und GELB (4) ebenfalls auf 1 reduzieren — gleiche Änderung wie GRÜN/BLAU.
-3. **Falls Tray bei erstem Balken trotz Farberkennung nicht dreht:** Prüfen ob `m_sf360_ready=true` und `m_tray_moving` nach Farberkennung gesetzt (Serial-Output auswerten).
+1. **Serial Monitor anschliessen und `ph=`-Counter beim Stopp beobachten:** `pio device monitor` (115200 baud). Beim Stopp an einem Balken: zeigt Serial `ph=0`, dann `ph=1`, `ph=2`, `ph=3`? Falls `ph` nie über 0 hinauskommt → Phase 0 (Tray-Wait) hängt. Falls `ph=0` und nie wechselt: `SF360_TIMEOUT_LOOPS` möglicherweise zu hoch, oder `m_arm_retract_ctr` wird nie 1.
+2. **Falls ph=0 hängt:** `SF360_TIMEOUT_LOOPS` auf 20 senken (0.4s, Notfall-Wert) um zu prüfen ob arm-Phasen danach laufen.
+3. **Falls ph=1 läuft aber kein sichtbarer Arm:** D2 Servo-Pin prüfen — Code hat `servo_D2(PB_2)`, Pin-Layout sagt PC_6. Falls D2 falsch angeschlossen oder falscher Pin → Arm streckt sich (D1) aber senkt sich nicht (D2).
 
 ## Offene Fragen
-- **V32_02 Ablege-Sequenz nicht validiert** — Gesamtlauf mit allen 8 Stops noch nicht getestet. Insbesondere: läuft `runDeliverPhase()` an breiten Balken korrekt durch (ph=0→1→2→3)?
-- **ROT/GELB Farberkennung evtl. zu streng** — ROT/GELB brauchen noch 3 stabile Lesungen; falls sie am Stopp nicht erkannt werden → act=0, kein Arm. Falls Problem auftritt → auf 1 reduzieren wie GRÜN/BLAU.
-- **ROT_GELB_DRIVE_LOOPS=51 nicht validiert** — 0.8cm Reduktion von 55→51 (≈2.2mm/Loop). Evtl. Feinabstimmung nötig (+/−1 Loop).
-- **Arm-Tiefen V32_02 nicht validiert:** D2_DOWN_GRUEN=0.05f, D2_DOWN_BLAU=0.22f. +0.01 ≈ 1.3mm höher falls zu tief.
-- **Linefollower-Problem mit unebener Matte identifiziert** — IR-Sensor aktiviert sich wenn zu nah an weissem Papier (Proximity-Effekt). Softwarelösung: SENSOR_THRESHOLD erhöhen (0.40f → 0.55f). Noch nicht implementiert.
+- **Jiggle funktioniert nicht trotz aller Software-Fixes** — Alle logischen Bugs behoben (Arm-Start-Timing, Tray-Tiefe, Phase-Reset-Guard, Timeout). Jiggle läuft immernoch nicht. Ursache unbekannt — muss via Serial Monitor `ph=`-Counter diagnostiziert werden.
+- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Falls physisch auf PC_6 aber Code auf PB_2 → D2 bewegt sich nie → Arm senkt nicht ab.
+- **ROT/GELB Farberkennung evtl. zu streng** — ROT/GELB brauchen noch 3 stabile Lesungen; falls act=0 → kein Arm. Falls Problem auftritt → auf 1 reduzieren wie GRÜN/BLAU.
+- **ROT_GELB_DRIVE_LOOPS=51 nicht validiert** — 0.8cm Reduktion. Evtl. Feinabstimmung nötig.
+- **Arm-Tiefen V33_03 nicht validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01 ≈ 1.3mm höher falls zu tief.
+- **Linefollower-Problem mit unebener Matte** — SENSOR_THRESHOLD=0.40f evtl. erhöhen auf 0.55f. Noch nicht implementiert.
 
 ## Session-Routine
 Am Ende jeder Session:
