@@ -1,15 +1,15 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-01)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-02)
 - **`PROTOTYPE_03_V30_1` aktiv** in `test_config.h`. V29 + V28 als Backup.
-- **BLAU-Logik (breite Balken) auf Hardware getestet und funktioniert** — Tray fährt auf Winkel, Jiggle läuft, Arm Pickup-Sequenz korrekt.
-- **ROT/GELB noch nicht getestet** — Jiggle + Arm-Sequenz in ROT_GELB_PAUSE. Bugs wurden in dieser Session gefixt (siehe unten).
-- **Servo-Enable/Disable komplett neu (v28-Pattern):** `m_tray_moving` Flag steuert ob serviceTray() update() aufruft. `trayMoveTo()` enables nur wenn bisher disabled (kein Stop-Puls-Glitch im Jiggle). `trayStop()` explizit an allen Exit-Punkten. Kein Auto-Disable mehr in serviceTray().
-- **runPickupPhase() neu (6 Phasen):** Phase 0: Tray→Winkel (trayMoveTo). Phase 1: D2 partial + Jiggle startet sofort. Phase 2: D1 extend + Jiggle+D1 synchron. Phase 3: D2 voll + Jiggle weiter. Phase 4: D2 hoch + Jiggle stoppt (moveToAngle→Mitte). Phase 5: D1 einfahren. Jiggle läuft via `applyJiggleTick()` + Static `s_jiggle_tick` (reset bei Phase 0→1).
-- **ROT_GELB_PAUSE prev_state Bug gefixt:** `static State prev_state = STATE_BLIND` (war fälschlich `STATE_ROT_GELB_PAUSE` → Entry-Code rannte nie → trayMoveTo() nie aufgerufen → kein Jiggle für ROT/GELB und letzten Balken).
-- **Phase 0 Safety:** beide runPickupPhase() und runDeliverPhase() rufen `trayMoveTo()` statt `moveToAngle()` in Phase 0 → Servo wird sicher eingeschaltet auch wenn er vorher deaktiviert war.
-- **STATE_BLIND Ausrichtung:** trayMoveTo(0°) bei all_sensors_active() + m_home_timer=150 (3s) → danach trayStop(). D1/D2 von _init() an in Heimposition (D1_RETRACTED, D2_UP).
+- **Hardware noch nicht getestet (Upload fehlgeschlagen)** — USB/ST-Link Verbindungsproblem, kein Flash möglich.
+- **3 offene Bugs (nicht hardware-validiert):** (1) erster breiter Querbalken kein Jiggle, (2) Jiggle bei GELB aktiviert nicht, (3) Winkelzuordnung GRÜN/BLAU physisch falsch.
+- **Fix implementiert (nicht getestet): tray bleibt aktiv während ROT_GELB_DRIVE** — trayStop() wird für ROT/GELB NICHT mehr vor ROT_GELB_DRIVE aufgerufen. Servo hält Farb-Winkel aktiv während 55-Loop-Fahrt → kein Drift → Phase 0 in ROT_GELB_PAUSE findet Servo sofort am Ziel → Jiggle startet sofort.
+- **Fix implementiert: Phase 0 Stale-Error** — `fresh_at_target = (m_phase_ctr >= 2) && isAtTarget()` verhindert sofortigen Exit mit veraltetem m_error.
+- **Fix implementiert: prev_state Block entfernt** aus ROT_GELB_PAUSE (war redundant nach Phase-Reset in ROT_GELB_DRIVE).
+- **Print-Output erweitert:** `ph=X` zeigt aktuellen Phasen-Index für Debugging im Serial Monitor.
+- **Winkel-Logik CODE korrekt:** COLOR_ANGLE = {0°, 90°, 180°, 270°} = {ROT, GRÜN, BLAU, GELB}. Code hat richtige Werte. Ursache des Winkel-Bugs unklar — braucht Serial Monitor Diagnose.
 - **V30_1 Pickup-Tiefen:** D2_DOWN_GRUEN=0.07f (ROT+GRÜN), D2_DOWN_BLAU=0.28f (GELB+BLAU). +0.01 ≈ 1.3mm höher.
 
 ## Stack
@@ -139,6 +139,9 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v30_1 (2026-05-01): runPickupPhase() 6-Phasen mit sofortigem Jiggle:** Jiggle via `applyJiggleTick(s_jiggle_tick)` in Phase 1-3 (static s_jiggle_tick, reset bei 0→1 Transition). Stoppt in Phase 4 (D2 hoch). D1-Jiggle synchron ab Phase 2 (D1 ausgefahren).
 - **v30_1 (2026-05-01): ROT_GELB_PAUSE prev_state Fix:** `static State prev_state = STATE_BLIND` statt STATE_ROT_GELB_PAUSE — damit Entry-Code (trayMoveTo + Phase-Reset) beim ersten Eintritt wirklich läuft.
 - **v30_1 (2026-05-01): Ausrichtung Drehteller:** Bei all_sensors_active() in STATE_BLIND → trayMoveTo(0.0f) + m_home_timer=150 (3s). Nach Timer: trayStop(). D1/D2 von Anfang an in Heimposition (enable in _init()).
+- **v30_1 (2026-05-02): trayStop() nur für GRÜN/BLAU vor Weiterfahrt** — ROT/GELB-Exit aus CROSSING_STOP und SMALL_CROSSING_STOP ruft trayStop() NICHT auf. Servo hält Farb-Winkel aktiv während ROT_GELB_DRIVE. trayStop() erst am Ende von ROT_GELB_PAUSE. Grund: ohne Torque dreht Tray während Fahrt weg → Phase 0 muss erst korrigieren → Jiggle verzögert oder fehlt.
+- **v30_1 (2026-05-02): Phase 0 Stale-Error-Fix** — `fresh_at_target = (m_phase_ctr >= 2) && isAtTarget()` in runPickupPhase() und runDeliverPhase(). Verhindert sofortigen Phase-0-Exit mit eingefrorenem m_error vom letzten disable() (update() noch nicht gelaufen).
+- **v30_1 (2026-05-02): ph=X im Print-Output** — printf zeigt jetzt `ph=m_phase_idx` für Serial Monitor Diagnose welche Arm-Phase gerade aktiv ist.
 - **Servo setMaxAcceleration Kalibrierungs-Effekt (2026-05-01):** setMaxAcceleration(X) multipliziert X mit (pulse_max - pulse_min). Für D1 (0.050–0.105): effektive Beschleunigung = X * 0.055. Bei X=0.3 → 0.0165 raw/s². Distanz 0.65→0.0 = 0.03575 raw → 2.94s theoretisch. Für D2 (0.020–0.131): effektive Beschleunigung bei X=0.3 → 0.3 * 0.111 = 0.0333 raw/s².
 - **TEST_ARM_SEQUENCE (2026-04-30): Arm-Isolationstest** — `src/test_files/test_arm_sequence.cpp`, Single-File ohne .h. 10 Schritte: Homing→Tray+30°→M20 ausfahren→M21 partial→Tray+330° CW→M21 voll→Jiggle ±10°→Tray 45°→Jiggle ±5°→Arm hoch. Button-Logik: Knopf1=Start, Knopf2=Stop+Reset auf S1, Knopf3=Start erneut. Kein setMaxAcceleration auf M20 (V27-Werte). Tray +330° als 2×165° Substeps (verhindert 180°-Ambiguität bei shortest-path-Berechnung).
 - **Button-Pattern (2026-04-30):** Test-Module dürfen `BUTTON1` nicht direkt lesen — `main.cpp`-DebounceIn-ISR interceptiert. `_task()` läuft nur wenn `do_execute_main_task=true` (ungerade Knöpfe). `_reset()` wird bei geraden Knöpfen aufgerufen. `while(1)` in `_task()` blockiert main-Loop → stattdessen SEQ_DONE-State verwenden.
@@ -158,15 +161,16 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **ROT/GELB Jiggle + Arm testen:** V30_1 flashen (`pio run --target upload`), Roboter auf ROT- oder GELB-Karte positionieren. Beobachten: Tray fährt auf 0° (ROT) oder 270° (GELB) in CROSSING_STOP, Roboter fährt 10cm vor (ROT_GELB_DRIVE), dann in ROT_GELB_PAUSE Tray-Jiggle + D1/D2 Arm-Sequenz (Phase 0→1→2→3→4→5). Falls Jiggle fehlt → Serial Monitor prüfen ob STATE=ROT_GELB_PAUSE erreicht wird.
-2. **advanceTray() Winkel validieren:** Nach 4 Pickups Slots ROT(0°)→GRÜN(90°)→BLAU(180°)→GELB(270°) mechanisch prüfen. SF360_OFFSET=110° ggf. anpassen.
-3. **D2-Tiefen validieren:** D2_DOWN_GRUEN=0.07f (ROT/GRÜN), D2_DOWN_BLAU=0.28f (GELB/BLAU) — falls Greifer zu tief → um +0.03–0.05 erhöhen.
+1. **USB-Verbindung prüfen + flashen:** ST-Link-Kabel einstecken, Serial Monitor schliessen, dann `pio run --target upload`. Danach `pio device monitor` öffnen. Roboter auf GRÜN-Querbalken positionieren und starten. Im Serial Monitor prüfen: zeigt `act=GRÜN` und `tray=IST/90.0`? Falls `act` falsch → Farbsensor-Problem. Falls `tray=IST/X` mit X≠90° → Code weist falschen Winkel zu (dann melden).
+2. **Erster Querbalken Jiggle testen:** Serial Monitor bei erstem Querbalken beobachten. Zeigt `ph=1`, `ph=2`, `ph=3`? Falls er bei `ph=0` bleibt → Phase 0 kommt nie an (Timeout-Problem). Falls `ph` gar nicht erscheint → m_arm_retract_ctr=0 (kein Arm gestartet).
+3. **GELB Jiggle testen:** Roboter bis GELB-Querbalken fahren lassen. In ROT_GELB_PAUSE: zeigt Serial Monitor `ph=1`? Falls ja → Jiggle läuft. Falls `ph=0` für >5s → Phase 0 Timeout-Bug.
 
 ## Offene Fragen
-- **ROT/GELB Jiggle in ROT_GELB_PAUSE nicht hardware-validiert:** prev_state Bug gefixt, aber noch nicht auf Hardware getestet. Falls kein Jiggle → prüfen ob trayMoveTo() in Phase 0 aufgerufen wird (m_tray_moving wird true).
+- **Bug: Erster Querbalken kein Jiggle** — Ursache unklar. Theorie: tray war bei 0° (Ausrichtung), Phase 0 exitiert sofort (fresh_at_target=true da Servo schon am Ziel), Phase 1 startet. Aber vielleicht m_tray_moving=false nach home_timer → trayMoveTo() macht enable() → kein Drift aber evtl. Stop-Puls? Diagnose via Serial Monitor ph=X.
+- **Bug: GELB Jiggle aktiviert nicht** — Fix implementiert (Servo aktiv während ROT_GELB_DRIVE), noch nicht getestet. Falls weiterhin kein Jiggle → Phase 0 prüfen.
+- **Bug: Winkelzuordnung GRÜN/BLAU physisch falsch** — Code hat korrekte Werte (GRÜN=90°, GELB=270°). Ursache unklar — braucht Serial Monitor: `act=X` und `tray=IST/SOLL` bei GRÜN/BLAU Balken beobachten.
 - **V30_1 Arm-Tiefen nicht validiert:** D2_DOWN_GRUEN=0.07f (ROT/GRÜN), D2_DOWN_BLAU=0.28f (GELB/BLAU) — zu tief → um +0.03–0.05 erhöhen (+0.01 ≈ 1.3mm).
-- **V30_1 advanceTray Timing:** Nach advanceTray(+90°) wartet Exit-Bedingung auf isAtTarget() oder 5s Timeout (SF360_TIMEOUT_LOOPS=250). Falls Drehteller mechanisch träge → Timeout feuert.
-- **serviceTray() kein Auto-Disable:** Servo bleibt aktiv bis explizit trayStop() aufgerufen wird. Bei abnormalem State-Exit (z.B. Reset mitten in Sequenz) → Servo könnte enabled bleiben. reset() ruft disable() auf, also nur Problem wenn State-Wechsel ohne reset().
+- **serviceTray() kein Auto-Disable:** Servo bleibt aktiv bis explizit trayStop() aufgerufen wird. reset() ruft disable() auf, also nur Problem wenn State-Wechsel ohne reset().
 
 ## Session-Routine
 Am Ende jeder Session:

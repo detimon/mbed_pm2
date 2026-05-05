@@ -302,12 +302,16 @@ static bool runPickupPhase()
 {
     static int s_jiggle_tick = 0;
 
-    // Phase 0: Tray zum Zielwinkel fahren (trayMoveTo sichert enable)
+    // Phase 0: Tray zum Zielwinkel fahren.
+    // Mindestens 2 Loops warten bevor isAtTarget() geprüft wird — sonst liest
+    // isAtTarget() einen stale m_error vom letzten disable() und gibt sofort true
+    // zurück, obwohl der Servo physisch noch weit vom Ziel entfernt ist.
     if (m_phase_idx == 0) {
         if (m_phase_ctr == 0)
             trayMoveTo(m_target_angle);
         m_phase_ctr++;
-        if (g_servoTray->isAtTarget() || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
+        bool fresh_at_target = (m_phase_ctr >= 2) && g_servoTray->isAtTarget();
+        if (fresh_at_target || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
             m_phase_idx   = 1;
             m_phase_ctr   = 0;
             s_jiggle_tick = 0;
@@ -391,9 +395,10 @@ static bool runDeliverPhase()
 {
     if (m_phase_idx == 0) {
         if (m_phase_ctr == 0)
-            trayMoveTo(m_target_angle);   // sichert enable falls Servo war aus
+            trayMoveTo(m_target_angle);
         m_phase_ctr++;
-        if (g_servoTray->isAtTarget() || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
+        bool fresh_at_target = (m_phase_ctr >= 2) && g_servoTray->isAtTarget();
+        if (fresh_at_target || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
             m_phase_idx = 1; m_phase_ctr = 0;
         }
         return false;
@@ -903,7 +908,6 @@ void roboter_v30_1_task(DigitalOut& led)
                                m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
                 if (tray_ok) {
                 int exit_color     = m_action_color;
-                trayStop();            // Servo stoppen + deaktivieren
                 m_slowing          = false;
                 m_slow_ctr         = 0;
                 m_action_color     = 0;
@@ -915,6 +919,7 @@ void roboter_v30_1_task(DigitalOut& led)
                 m_phase_ctr        = 0;
                 m_tray_timeout_ctr = 0;
                 if (exit_color == 3 || exit_color == 4) {
+                    // ROT/GELB: tray stays active at color angle — holds position during drive
                     m_rot_gelb_color    = exit_color;
                     m_rot_gelb_is_small = false;
                     m_approach_ctr      = 0;
@@ -922,11 +927,13 @@ void roboter_v30_1_task(DigitalOut& led)
                     g_lf->setMaxWheelVelocity(MAX_SPEED);
                     m_state = STATE_ROT_GELB_DRIVE;
                 } else if (m_crossings_left == 0) {
+                    trayStop();
                     m_small_crossings_left = TOTAL_SMALL_CROSSINGS;
                     m_guard_ctr            = SMALL_FOLLOW_START_GUARD;
                     m_small_accel_ctr      = 0;
                     m_state                = STATE_SMALL_FOLLOW;
                 } else {
+                    trayStop();
                     m_guard_ctr      = STOP_GUARD;
                     m_real_accel_ctr = 0;
                     m_state          = STATE_REAL_FOLLOW;
@@ -1056,7 +1063,6 @@ void roboter_v30_1_task(DigitalOut& led)
                                m_tray_timeout_ctr >= SF360_TIMEOUT_LOOPS;
                 if (tray_ok) {
                 int exit_color     = m_action_color;
-                trayStop();            // Servo stoppen + deaktivieren
                 m_slowing          = false;
                 m_slow_ctr         = 0;
                 m_action_color     = 0;
@@ -1068,6 +1074,7 @@ void roboter_v30_1_task(DigitalOut& led)
                 m_phase_ctr        = 0;
                 m_tray_timeout_ctr = 0;
                 if (exit_color == 3 || exit_color == 4) {
+                    // ROT/GELB: tray stays active at color angle — holds position during drive
                     m_rot_gelb_color    = exit_color;
                     m_rot_gelb_is_small = true;
                     m_approach_ctr      = 0;
@@ -1075,8 +1082,10 @@ void roboter_v30_1_task(DigitalOut& led)
                     g_lf->setMaxWheelVelocity(MAX_SPEED);
                     m_state = STATE_ROT_GELB_DRIVE;
                 } else if (m_small_crossings_left == 0) {
+                    trayStop();
                     m_state = STATE_FINAL_HALT;
                 } else {
+                    trayStop();
                     m_guard_ctr       = SMALL_REENTRY_GUARD;
                     m_small_accel_ctr = 0;
                     m_state           = STATE_SMALL_FOLLOW;
@@ -1120,14 +1129,9 @@ void roboter_v30_1_task(DigitalOut& led)
         // ROT_GELB_PAUSE — v29 Arm-Sequenz via runPickupPhase()
         // ----------------------------------------------------------------
         case STATE_ROT_GELB_PAUSE: {
-            static State prev_state = STATE_BLIND;  // verschieden von ROT_GELB_PAUSE → Entry-Code läuft beim ersten Eintritt
-            if (prev_state != m_state) {
-                trayMoveTo(m_target_angle);  // Servo aktivieren + auf Farbwinkel
-                m_phase_idx       = 0;
-                m_phase_ctr       = 0;
-                m_arm_retract_ctr = 1;
-                prev_state        = m_state;
-            }
+            // Kein Entry-Code nötig: ROT_GELB_DRIVE setzt m_phase_idx=0,
+            // m_phase_ctr=0, m_arm_retract_ctr=1 vor dem State-Wechsel.
+            // runPickupPhase() Phase 0 ruft trayMoveTo() beim ersten Aufruf auf.
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
 
@@ -1262,8 +1266,9 @@ void roboter_v30_1_print()
         (m_state == STATE_ROT_GELB_PAUSE)      ? "RG_PAUSE    " : "FINAL_HALT  ";
 
     float tray_angle = g_servoTray ? g_servoTray->getCurrentAngle() : 0.0f;
-    printf("State: %s | wide=%d small=%d | tray=%.1f/%.1f | col=%-5s act=%-5s\n",
+    printf("State: %s ph=%d | wide=%d small=%d | tray=%.1f/%.1f | col=%-5s act=%-5s\n",
            s,
+           m_phase_idx,
            m_crossings_left,
            m_small_crossings_left,
            tray_angle,
