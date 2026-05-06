@@ -26,7 +26,7 @@
 // #define PROTOTYPE_02_V20
 // #define PROTOTYPE_02_V21
 // #define PROTOTYPE_02_V22
-//#define PROTOTYPE_02_V23
+// #define PROTOTYPE_02_V23
 // #define PROTOTYPE_03_V23_2
 // #define PROTOTYPE_03_V24
 // #define PROTOTYPE_03_V25
