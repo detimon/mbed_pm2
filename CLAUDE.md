@@ -3,16 +3,15 @@
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06)
 - **`PROTOTYPE_03_V35_04_02` aktiv** in `test_config.h`. V34_04_01 als Backup.
-- **V35_04_02 = Kopie von V34_04_01** — identisch, bereit für Feintuning der breiten Balken.
-- **Per-Farbe-States implementiert und in v34_04_01 umgesetzt:**
-  - 8 neue States: `STATE_ARM_{ROT,GELB,GRUEN,BLAU}` + `STATE_SMALL_ARM_{ROT,GELB,GRUEN,BLAU}`
-  - `STATE_CROSSING_STOP` + `STATE_SMALL_CROSSING_STOP` sind reine Dispatch-States (lesen Farbe → gehen sofort in per-Farbe-State)
-  - `STATE_ROT_GELB_DRIVE` + `STATE_ROT_GELB_PAUSE` entfernt — Logik in `STATE_ARM_ROT/GELB` integriert
-  - Hard-coded Winkel: `ANGLE_ROT=0°`, `ANGLE_GRUEN=90°`, `ANGLE_BLAU=180°`, `ANGLE_GELB=270°`
-  - Helper-Funktionen: `resetArmExitVars()`, `exitWideBar()`, `exitSmallLine()` für DRY-Exit
-  - Print-Output: `dr=N` (drive_ctr) zusätzlich zu `ph=N`
-- **STATUS: Schmale Balken (STATE_SMALL_ARM_*) funktionieren perfekt** — Ablage-Sequenz läuft zuverlässig.
-- **Breite Balken (STATE_ARM_*) noch nicht validiert** — nächster Test-Schritt.
+- **V35_04_02 Änderungen gegenüber V34_04_01 (heute getestet):**
+  - `SF360_TIMEOUT_LOOPS=60` (war 30) — Tray hat 1.2s zur Drehung in Phase 0 Exit
+  - `CROSSING_STOP_LOOPS=150` (war 100) — Color-Reading-Fenster bei wide bars 3s statt 2s
+  - `REAL_APPROACH` setzt `m_color_fallback` direkt (statt Umweg über `m_approach_fallback`) — bar 1 jetzt konsistent zu bars 2-4
+  - `STATE_CROSSING_STOP` body identisch zu `SMALL_CROSSING_STOP` — keine `m_approach_fallback`-Sonderlogik mehr
+  - **`runDeliverPhase()` Phase 0 robuster:** kein quick-timeout mehr; wartet auf `isAtTarget()`; periodischer "kick" alle 25 loops (forciert `enable() + moveToAngle()`); Safety-Notfall nach 500 loops (10s)
+- **STATUS: 3 von 4 breiten Balken funktionieren** — BLAU jiggelt jetzt ZUM ERSTEN MAL am ersten breiten Balken zuverlässig. GRÜN und ROT auch OK.
+- **Schmale Balken (STATE_SMALL_ARM_*) funktionieren perfekt** — unverändert.
+- **OFFEN: GELB beim 3. breiten Balken jiggelt nicht** — vermutlich erreicht Safety-Notfall (10s) nach Tray-Drehung von 270°. Kick-Mechanismus reicht nicht für längste Drehung.
 
 ## Stack
 - Sprache: C++14
@@ -172,6 +171,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v23 (2026-04-23 S2): `all_sensors_active()` auf 7/8 Sensoren gelockert** — toleranter gegen schrägen Einlauf, gilt in STATE_BLIND und STATE_FOLLOW
 - **v23 (2026-04-23 S2): Jiggle 2 in ROT_GELB_PAUSE auf 12 Loops** (vorher 7) — Counter 52 → 40 statt 52 → 45, D2 geht synchron mit Stopp hoch. Gilt ROT + GELB an allen Positionen
 - **v23 (2026-04-23 S2): Semantik der Zählweise** — "5 Clicks" = 5 Endschalter-Hits (nach Entprellung). An breiten Balken dreht das Tablett 5 Clicks weiter (inkl. letztem), an Schmallinien 1×90°-Kick
+- **v35_04_02 (2026-05-06): Aktiver Arbeits-Zweig + erster funktionierender Jiggle bei BLAU** — Kopie von V34_04_01 mit Timing-Fixes für breite Balken.
+- **v35_04_02 (2026-05-06): WIDE crossing stop strikt wie SMALL** — `m_approach_fallback` aus REAL_APPROACH-Pfad und CROSSING_STOP-Body entfernt. `m_color_fallback` direkt in REAL_APPROACH gesetzt (gleiche Stelle wie REAL_FOLLOW). Behebt: bar 1 hatte zwei verschiedene Fallback-Variablen die durcheinander gerieten.
+- **v35_04_02 (2026-05-06): `runDeliverPhase()` Phase 0 robuster** — kein quick-timeout mehr, wartet auf `isAtTarget()`. Periodischer Kick alle 25 loops (forciert `g_servoTray->enable(0.5f) + moveToAngle(m_target_angle)` direkt, umgeht `m_tray_moving`-Check von `trayMoveTo()`). Safety-Notfall nach 500 loops (10s). Wichtige Erkenntnis: der 360°-Servo ignoriert manchmal den ersten Befehl → periodischer Re-Trigger nötig.
+- **v35_04_02 (2026-05-06): Konstanten erhöht für wide bars** — `CROSSING_STOP_LOOPS=150` (war 100, mehr Reading-Zeit), `SF360_TIMEOUT_LOOPS=60` (war 30, betrifft auch STATE_ARM_*-Exit-Wait).
 
 ## Projekt-Kontext
 - **Kurs:** ZHAW 2. Semester, Modul PM2
@@ -179,12 +182,12 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Breite Balken in `src/prototype03_v35_04_02.cpp` testen und genau gleich wie schmale Balken zum Laufen bringen:** `pio run --target upload` → Serial Monitor öffnen → Roboter über ersten breiten Balken fahren → prüfen ob Serial `ARM_GRUEN` / `ARM_BLAU` / `ARM_ROT` / `ARM_GELB` anzeigt und `ph=0→1→2→3` durchläuft. Falls Arm nicht startet: `act=FARBE` und `tray=IST/SOLL` im Serial-Output beobachten und melden.
+1. **GELB beim 3. breiten Balken zum Jiggeln bringen:** In `src/prototype03_v35_04_02.cpp` `runDeliverPhase()` Phase 0 die Kick-Frequenz erhöhen (von 25 auf 15 loops) UND/ODER den ersten Kick sofort statt erst nach Loop 25 absetzen. Dann `pio run --target upload` und Serial Monitor — beim 3. breiten Balken (GELB, 270°) prüfen ob `tray=` auf 270° läuft bevor `ph=` von 0 auf 1 wechselt. Falls immer noch Notfall-Timeout: `SF360_TIMEOUT_LOOPS` (Phase 0 Safety) auf 800 erhöhen oder Servo-Hardware checken.
 
 ## Offene Fragen
-- **Breite Balken (STATE_ARM_*) noch nicht validiert** — schmale Balken laufen perfekt, breite noch nicht getestet. Gleicher Code-Pfad, sollte funktionieren.
-- **ROT_GELB_DRIVE_LOOPS=51 noch nicht validiert** — 0.8cm weniger als vorher (war 55). Evtl. Feinabstimmung nötig (+/−1 Loop ≈ 2.2mm).
-- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Vor Inbetriebnahme prüfen ob physisch auf PB_2 oder PC_6 verdrahtet.
+- **GELB beim 3. breiten Balken kein Jiggle** — Tray erreicht 270° nicht innerhalb 10s Notfall-Timeout. Kick-Mechanismus alle 25 loops reicht nicht für die längste Drehung (270° vs 90°/180° die funktionieren).
+- **ROT_GELB_DRIVE_LOOPS=51 noch nicht validiert** — 0.8cm Fahrdistanz nach ROT/GELB-Erkennung. Bei ROT funktionierte es heute, GELB konnte nicht getestet werden.
+- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, Pin-Layout sagt PC_6. Vor Inbetriebnahme prüfen ob physisch auf PB_2 oder PC_6 verdrahtet.
 - **Arm-Tiefen nicht final validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01f ≈ 1.3mm höher falls zu tief.
 - **Linefollower-Problem mit unebener Matte** — SENSOR_THRESHOLD=0.40f evtl. erhöhen auf 0.55f. Noch nicht implementiert.
 

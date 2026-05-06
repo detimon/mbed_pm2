@@ -64,7 +64,7 @@ static const int COLOR_STOP_STABLE_CNT = 1;
 // Programm-Konstanten
 // ---------------------------------------------------------------------------
 static const int   TOTAL_CROSSINGS       = 4;
-static const int   CROSSING_STOP_LOOPS   = 100;
+static const int   CROSSING_STOP_LOOPS   = 150;  // war 100 — mehr Zeit fÃ¼r color reading bei wide bars
 static const int   SMALL_FOLLOW_START_GUARD   = static_cast<int>(781 * SPEED_SCALE);
 static const int   SMALL_REENTRY_GUARD        = static_cast<int>(100 * SPEED_SCALE);
 static const int   TOTAL_SMALL_CROSSINGS      = 4;
@@ -85,7 +85,7 @@ static const int   RAISE_LOOPS         = 50;
 static const int   RETRACT_LOOPS       = 120;
 static const float JIGGLE_AMPL_DEG    = 10.0f;
 static const float D1_JIGGLE_OFFSET   = 0.05f;
-static const int   SF360_TIMEOUT_LOOPS = 30;
+static const int   SF360_TIMEOUT_LOOPS = 60;  // war 30 — mehr Zeit fÃ¼r 180Â° BLAU tray drehung
 
 static const int   ROT_GELB_DRIVE_LOOPS  = 51;
 static const int   ROT_GELB_ACCEL_LOOPS  = 10;
@@ -300,11 +300,25 @@ static void applyJiggleTick(int tick)
 static bool runDeliverPhase()
 {
     if (m_phase_idx == 0) {
+        // Beim ersten Mal: tray-Befehl absetzen
         if (m_phase_ctr == 0)
             trayMoveTo(m_target_angle);
         m_phase_ctr++;
-        bool fresh_at_target = (m_phase_ctr >= 2) && g_servoTray->isAtTarget();
-        if (fresh_at_target || m_phase_ctr >= SF360_TIMEOUT_LOOPS) {
+
+        // Servo periodisch "kicken" alle 25 loops (0.5s) — schÃ¼tzt vor dem bug,
+        // dass der 360Â°-servo den Befehl beim ersten Mal ignoriert.
+        // Forciert enable + moveToAngle, auch wenn m_tray_moving schon true ist.
+        if ((m_phase_ctr % 25) == 0 && !g_servoTray->isAtTarget()) {
+            g_servoTray->enable(0.5f);
+            m_tray_moving = true;
+            g_servoTray->moveToAngle(m_target_angle);
+        }
+
+        // Phase 1 (arm runter) startet ERST wenn tray wirklich am ziel ist —
+        // kein quick-timeout mehr. Safety-Notfall nach 10s falls servo wirklich tot.
+        bool at_target = (m_phase_ctr >= 2) && g_servoTray->isAtTarget();
+        bool emergency = (m_phase_ctr >= 500);
+        if (at_target || emergency) {
             m_phase_idx = 1; m_phase_ctr = 0;
         }
         return false;
@@ -698,7 +712,7 @@ void roboter_v35_04_02_task(DigitalOut& led)
             {
                 int col_a = m_current_color;
                 if (col_a == 3 || col_a == 4 || col_a == 5 || col_a == 7)
-                    m_approach_fallback = col_a;
+                    m_color_fallback = col_a;  // direkt setzen, wie REAL_FOLLOW
             }
 
             if (m_approach_ctr > ACCEL_LOOPS && wide_bar_active()) {
@@ -710,7 +724,6 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
                 m_arm_retract_ctr  = 0;
-                if (m_color_fallback == 0) m_color_fallback = m_approach_fallback;
                 if (m_color_fallback != 0) m_action_color = m_color_fallback;
                 m_state            = STATE_CROSSING_STOP;
             }
@@ -805,10 +818,9 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 }
             }
 
-            // Fallback bei Timeout
+            // Fallback bei Timeout — identisch zu SMALL_CROSSING_STOP
             if (m_crossing_ctr <= 0 && m_action_color == 0) {
                 m_action_color = m_color_fallback;
-                if (m_action_color == 0) m_action_color = m_approach_fallback;
                 if (m_action_color != 0) setNeoColor(m_action_color);
             }
 
@@ -823,7 +835,6 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 m_color_stable_ctr = 0;
                 m_color_pending    = 0;
                 m_color_fallback   = 0;
-                m_approach_fallback = 0;
                 switch (m_action_color) {
                     case 3:
                         m_target_angle    = ANGLE_ROT;
