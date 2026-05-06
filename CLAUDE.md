@@ -1,18 +1,16 @@
 # mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06)
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06 Session 2)
 - **`PROTOTYPE_03_V35_04_02` aktiv** in `test_config.h`. V34_04_01 als Backup.
-- **V35_04_02 = Kopie von V34_04_01** — identisch, bereit für Feintuning der breiten Balken.
-- **Per-Farbe-States implementiert und in v34_04_01 umgesetzt:**
-  - 8 neue States: `STATE_ARM_{ROT,GELB,GRUEN,BLAU}` + `STATE_SMALL_ARM_{ROT,GELB,GRUEN,BLAU}`
-  - `STATE_CROSSING_STOP` + `STATE_SMALL_CROSSING_STOP` sind reine Dispatch-States (lesen Farbe → gehen sofort in per-Farbe-State)
-  - `STATE_ROT_GELB_DRIVE` + `STATE_ROT_GELB_PAUSE` entfernt — Logik in `STATE_ARM_ROT/GELB` integriert
-  - Hard-coded Winkel: `ANGLE_ROT=0°`, `ANGLE_GRUEN=90°`, `ANGLE_BLAU=180°`, `ANGLE_GELB=270°`
-  - Helper-Funktionen: `resetArmExitVars()`, `exitWideBar()`, `exitSmallLine()` für DRY-Exit
-  - Print-Output: `dr=N` (drive_ctr) zusätzlich zu `ph=N`
-- **STATUS: Schmale Balken (STATE_SMALL_ARM_*) funktionieren perfekt** — Ablage-Sequenz läuft zuverlässig.
-- **Breite Balken (STATE_ARM_*) noch nicht validiert** — nächster Test-Schritt.
+- **Schmale Balken (STATE_SMALL_ARM_*): funktionieren perfekt** — alle 4 Farben, Ablage-Sequenz zuverlässig.
+- **Breite Balken (STATE_ARM_*): 50/50 Problem beim ersten Balken** — wenn Ausrichtungsprogramm (STATE_BLIND) vorher läuft, macht der Arm keinen Jiggle; ohne Ausrichtung manchmal OK.
+- **GELB breite Balken: Probleme** — entweder Farblesung oder Jiggle fehlerhaft (noch nicht isoliert).
+- **Fixes dieser Session:**
+  - Fallback-Counter-Bug in `STATE_CROSSING_STOP` + `STATE_SMALL_CROSSING_STOP` behoben: Dekrement VOR Fallback-Check (vorher: letzter Loop griff nie)
+  - `REAL_APPROACH_GUARD = 20` (war `ACCEL_LOOPS=12` → zu früh, dann `50` → überfuhr Balken 1)
+  - `STATE_REAL_START_PAUSE` liest jetzt auch Farbe → `m_approach_fallback` (falls Farbsensor über Aufkleber steht)
+- **Root-Cause erster Balken (offen):** Farbsensor (vorne) ist geometrisch bereits am farbigen Aufkleber von Balken 1 vorbei wenn REAL_APPROACH startet. `m_approach_fallback = 0`. Im CROSSING_STOP-Fenster liest Sensor Matte. Beide Fallbacks = 0 → Default-Case → kein ARM-State → kein Jiggle.
 
 ## Stack
 - Sprache: C++14
@@ -149,7 +147,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v33_03 (2026-05-06): NeoPixel an PC_5** — Live-Farbanzeige 50Hz, dimm (r/g/b=60 statt 255). Für helle Anzeige beim Stopp: `setNeoColor()` in reading blocks. Überschrieben von Live-Loop, aber korrekt beim Halt sichtbar.
 - **v33_03 (2026-05-06): Jiggle-Fix-Versuch — alle Code-Pfade behoben, Jiggle immernoch nicht sichtbar** — GRÜN/BLAU arm-Start bei CROSSING_STOP-Eintritt; GELB depthForColor-Bug (m_action_color=0 → m_rot_gelb_color restored); Phase-Reset-Guard; Timeout 250→100. Nächster Debug-Schritt: Serial Monitor ph=-Counter live beobachten.
 - **v33_03 (2026-05-06): m_approach_fallback** — liest Farbe während REAL_APPROACH als letzten Fallback wenn CROSSING_STOP Lese-Fenster nichts erkennt. Wird nur in CROSSING_STOP ctr==75 als Notfall genutzt.
-- **v35_04_02 (2026-05-06): Aktiver Arbeits-Zweig** — Kopie von v34_04_01 (Per-Farbe-States). Schmale Balken getestet und funktionieren perfekt. Breite Balken nächster Schritt.
+- **v35_04_02 (2026-05-06): Aktiver Arbeits-Zweig** — Kopie von v34_04_01 (Per-Farbe-States). Schmale Balken getestet und funktionieren perfekt. Breite Balken: 50/50 beim ersten Balken (Farb-Geometrie-Problem), GELB unklar.
+- **v35_04_02 (2026-05-06 S2): REAL_APPROACH_GUARD=20** — Schutz-Loops vor wide_bar_active()-Check in STATE_REAL_APPROACH. 12 (ACCEL_LOOPS) war zu früh (Jiggle während Ausrichtung), 50 überfuhr Balken 1.
+- **v35_04_02 (2026-05-06 S2): Farblesung in STATE_REAL_START_PAUSE** — `m_approach_fallback` wird auch während der Pause nach BACKWARD gesetzt. Hilft wenn Farbsensor zufällig über Aufkleber steht.
+- **v35_04_02 (2026-05-06 S2): Fallback-Counter-Bug behoben** — In CROSSING_STOP + SMALL_CROSSING_STOP: `m_crossing_ctr--` jetzt VOR dem Fallback-Check. Vorher wurde Fallback im letzten Loop nie angewendet.
 - **v34_04_01 (2026-05-06): Per-Farbe-States implementiert** — CROSSING_STOP/SMALL_CROSSING_STOP = Dispatch. 8 States: STATE_ARM_{ROT=0°,GRUEN=90°,BLAU=180°,GELB=270°} + SMALL_ARM_*. ROT/GELB: Phase A Fahrt (ROT_GELB_DRIVE_LOOPS=51) + Phase B Arm. Helper: resetArmExitVars(), exitWideBar(), exitSmallLine(). m_drive_ctr neu. colorToSlot/COLOR_ANGLE/m_rot_gelb_color/m_rot_gelb_is_small entfernt.
 - **v34_04_01 (2026-05-06): Aktiver Arbeits-Zweig** — Kopie von v33_03. Enthält alle v33_03-Fixes. Nächster Schritt: Per-Farbe-States. V33_03 bleibt als Backup unverändert.
 - **v34_04_01 (2026-05-06): Per-Farbe-States geplant** — CROSSING_STOP/SMALL_CROSSING_STOP werden reine Dispatch-States. 8 neue States: STATE_ARM_BLAU/GRUEN/ROT/GELB + STATE_SMALL_ARM_*. Jeder State hat hard-coded Tray-Winkel (BLAU=180°, GRÜN=90°, ROT=0°+Drive, GELB=270°+Drive). STATE_ROT_GELB_DRIVE + STATE_ROT_GELB_PAUSE werden entfernt. colorToSlot()/COLOR_ANGLE[] werden entfernt.
@@ -179,14 +180,15 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Breite Balken in `src/prototype03_v35_04_02.cpp` testen und genau gleich wie schmale Balken zum Laufen bringen:** `pio run --target upload` → Serial Monitor öffnen → Roboter über ersten breiten Balken fahren → prüfen ob Serial `ARM_GRUEN` / `ARM_BLAU` / `ARM_ROT` / `ARM_GELB` anzeigt und `ph=0→1→2→3` durchläuft. Falls Arm nicht startet: `act=FARBE` und `tray=IST/SOLL` im Serial-Output beobachten und melden.
+1. **Erster breiter Balken — Farblesung debuggen:** Serial Monitor während Test laufen lassen. Am ersten breiten Balken `act=X` und `col=X` beobachten. Wenn `act=0`: Farbe wird nicht erkannt → prüfen ob `m_approach_fallback` aus STATE_REAL_START_PAUSE gesetzt wurde (Serial-Print `fb=m_approach_fallback` temporär hinzufügen). Falls Farbe nie gelesen wird: Farblesung auch in `STATE_BLIND` nach `all_sensors_active()` und in `STATE_BACKWARD` starten (Farbsensor überfährt Balken 1 während Rückwärtsfahrt).
+2. **GELB breite Balken isolieren:** Nur GELB-Karte auf Matte legen, `pio run --target upload`, prüfen ob `act=4` (GELB) gesetzt wird und `ph=0→1→2→3` im Serial erscheint. Falls `act=4` OK aber kein Jiggle: `STATE_ARM_GELB` Phase-Sequenz in Code prüfen.
 
 ## Offene Fragen
-- **Breite Balken (STATE_ARM_*) noch nicht validiert** — schmale Balken laufen perfekt, breite noch nicht getestet. Gleicher Code-Pfad, sollte funktionieren.
-- **ROT_GELB_DRIVE_LOOPS=51 noch nicht validiert** — 0.8cm weniger als vorher (war 55). Evtl. Feinabstimmung nötig (+/−1 Loop ≈ 2.2mm).
-- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Vor Inbetriebnahme prüfen ob physisch auf PB_2 oder PC_6 verdrahtet.
+- **Erster breiter Balken — kein Jiggle nach Ausrichtung (50/50):** Geometrisches Problem — Farbsensor überfährt Aufkleber schon während BACKWARD/Ausrichtung. `m_approach_fallback=0` und CROSSING_STOP-Fenster liest Matte → `act=0` → Default → kein ARM-State. Fix-Kandidat: Farblesung in STATE_BACKWARD oder STATE_BLIND nach all_sensors_active() starten.
+- **GELB breite Balken: Probleme** — unklar ob Farblesung (act=4 nicht gesetzt) oder Jiggle-Phase (ph hängt). Mit Serial Monitor isolieren.
+- **ROT_GELB_DRIVE_LOOPS=51 nicht final validiert** — 0.8cm weniger als vorher (war 55). Evtl. +/−1 Loop ≈ 2.2mm nötig.
+- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Vor Inbetriebnahme prüfen.
 - **Arm-Tiefen nicht final validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01f ≈ 1.3mm höher falls zu tief.
-- **Linefollower-Problem mit unebener Matte** — SENSOR_THRESHOLD=0.40f evtl. erhöhen auf 0.55f. Noch nicht implementiert.
 
 ## Session-Routine
 Am Ende jeder Session:

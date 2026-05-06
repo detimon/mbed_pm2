@@ -51,6 +51,7 @@ static const int PAUSE_LOOPS          = 20;
 static const int BACKWARD_LOOPS       = 222;
 static const int ACCEL_LOOPS          = 12;
 static const int RESTART_ACCEL_LOOPS  = 50;
+static const int REAL_APPROACH_GUARD  = 20;  // verhindert Startbalken-Trigger
 static const int STOP_GUARD           = static_cast<int>(75  * SPEED_SCALE);
 static const int START_GUARD          = static_cast<int>(300 * SPEED_SCALE);
 static const int SLOWDOWN_LOOPS       = 13;
@@ -679,6 +680,11 @@ void roboter_v35_04_02_task(DigitalOut& led)
         case STATE_REAL_START_PAUSE:
             g_M1->setVelocity(0.0f);
             g_M2->setVelocity(0.0f);
+            {   // Farbsensor könnte während Pause über Balken 1 stehen → vormerken
+                int col_p = m_current_color;
+                if (col_p == 3 || col_p == 4 || col_p == 5 || col_p == 7)
+                    m_approach_fallback = col_p;
+            }
             m_pause_ctr--;
             if (m_pause_ctr <= 0) {
                 m_crossings_left = TOTAL_CROSSINGS;
@@ -701,7 +707,7 @@ void roboter_v35_04_02_task(DigitalOut& led)
                     m_approach_fallback = col_a;
             }
 
-            if (m_approach_ctr > ACCEL_LOOPS && wide_bar_active()) {
+            if (m_approach_ctr > REAL_APPROACH_GUARD && wide_bar_active()) {
                 g_M1->setVelocity(0.0f);
                 g_M2->setVelocity(0.0f);
                 m_crossings_left--;
@@ -805,14 +811,14 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 }
             }
 
-            // Fallback bei Timeout
+            if (m_crossing_ctr > 0) m_crossing_ctr--;
+
+            // Fallback bei Timeout (nach Dekrement, damit der letzte Loop greift)
             if (m_crossing_ctr <= 0 && m_action_color == 0) {
                 m_action_color = m_color_fallback;
                 if (m_action_color == 0) m_action_color = m_approach_fallback;
                 if (m_action_color != 0) setNeoColor(m_action_color);
             }
-
-            if (m_crossing_ctr > 0) m_crossing_ctr--;
 
             // Dispatch sobald Farbe bekannt ODER Zeit abgelaufen
             if (m_action_color != 0 || m_crossing_ctr <= 0) {
@@ -1095,12 +1101,13 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 }
             }
 
+            if (m_small_crossing_ctr > 0) m_small_crossing_ctr--;
+
+            // Fallback bei Timeout (nach Dekrement, damit der letzte Loop greift)
             if (m_small_crossing_ctr <= 0 && m_action_color == 0) {
                 m_action_color = m_color_fallback;
                 if (m_action_color != 0) setNeoColor(m_action_color);
             }
-
-            if (m_small_crossing_ctr > 0) m_small_crossing_ctr--;
 
             if (m_action_color != 0 || m_small_crossing_ctr <= 0) {
                 m_phase_idx        = 0;
