@@ -3,6 +3,7 @@
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06 Session 2)
 - **`PROTOTYPE_03_V35_04_02` aktiv** in `test_config.h`. V34_04_01 als Backup.
+<<<<<<< HEAD
 - **Schmale Balken (STATE_SMALL_ARM_*): funktionieren perfekt** — alle 4 Farben, Ablage-Sequenz zuverlässig.
 - **Breite Balken (STATE_ARM_*): 50/50 Problem beim ersten Balken** — wenn Ausrichtungsprogramm (STATE_BLIND) vorher läuft, macht der Arm keinen Jiggle; ohne Ausrichtung manchmal OK.
 - **GELB breite Balken: Probleme** — entweder Farblesung oder Jiggle fehlerhaft (noch nicht isoliert).
@@ -11,6 +12,17 @@ _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06 Session 2
   - `REAL_APPROACH_GUARD = 20` (war `ACCEL_LOOPS=12` → zu früh, dann `50` → überfuhr Balken 1)
   - `STATE_REAL_START_PAUSE` liest jetzt auch Farbe → `m_approach_fallback` (falls Farbsensor über Aufkleber steht)
 - **Root-Cause erster Balken (offen):** Farbsensor (vorne) ist geometrisch bereits am farbigen Aufkleber von Balken 1 vorbei wenn REAL_APPROACH startet. `m_approach_fallback = 0`. Im CROSSING_STOP-Fenster liest Sensor Matte. Beide Fallbacks = 0 → Default-Case → kein ARM-State → kein Jiggle.
+=======
+- **V35_04_02 Änderungen gegenüber V34_04_01 (heute getestet):**
+  - `SF360_TIMEOUT_LOOPS=60` (war 30) — Tray hat 1.2s zur Drehung in Phase 0 Exit
+  - `CROSSING_STOP_LOOPS=150` (war 100) — Color-Reading-Fenster bei wide bars 3s statt 2s
+  - `REAL_APPROACH` setzt `m_color_fallback` direkt (statt Umweg über `m_approach_fallback`) — bar 1 jetzt konsistent zu bars 2-4
+  - `STATE_CROSSING_STOP` body identisch zu `SMALL_CROSSING_STOP` — keine `m_approach_fallback`-Sonderlogik mehr
+  - **`runDeliverPhase()` Phase 0 robuster:** kein quick-timeout mehr; wartet auf `isAtTarget()`; periodischer "kick" alle 25 loops (forciert `enable() + moveToAngle()`); Safety-Notfall nach 500 loops (10s)
+- **STATUS: 3 von 4 breiten Balken funktionieren** — BLAU jiggelt jetzt ZUM ERSTEN MAL am ersten breiten Balken zuverlässig. GRÜN und ROT auch OK.
+- **Schmale Balken (STATE_SMALL_ARM_*) funktionieren perfekt** — unverändert.
+- **OFFEN: GELB beim 3. breiten Balken jiggelt nicht** — vermutlich erreicht Safety-Notfall (10s) nach Tray-Drehung von 270°. Kick-Mechanismus reicht nicht für längste Drehung.
+>>>>>>> a7472cd667993ad4c9bef5386ae190df239b7cfe
 
 ## Stack
 - Sprache: C++14
@@ -173,6 +185,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v23 (2026-04-23 S2): `all_sensors_active()` auf 7/8 Sensoren gelockert** — toleranter gegen schrägen Einlauf, gilt in STATE_BLIND und STATE_FOLLOW
 - **v23 (2026-04-23 S2): Jiggle 2 in ROT_GELB_PAUSE auf 12 Loops** (vorher 7) — Counter 52 → 40 statt 52 → 45, D2 geht synchron mit Stopp hoch. Gilt ROT + GELB an allen Positionen
 - **v23 (2026-04-23 S2): Semantik der Zählweise** — "5 Clicks" = 5 Endschalter-Hits (nach Entprellung). An breiten Balken dreht das Tablett 5 Clicks weiter (inkl. letztem), an Schmallinien 1×90°-Kick
+- **v35_04_02 (2026-05-06): Aktiver Arbeits-Zweig + erster funktionierender Jiggle bei BLAU** — Kopie von V34_04_01 mit Timing-Fixes für breite Balken.
+- **v35_04_02 (2026-05-06): WIDE crossing stop strikt wie SMALL** — `m_approach_fallback` aus REAL_APPROACH-Pfad und CROSSING_STOP-Body entfernt. `m_color_fallback` direkt in REAL_APPROACH gesetzt (gleiche Stelle wie REAL_FOLLOW). Behebt: bar 1 hatte zwei verschiedene Fallback-Variablen die durcheinander gerieten.
+- **v35_04_02 (2026-05-06): `runDeliverPhase()` Phase 0 robuster** — kein quick-timeout mehr, wartet auf `isAtTarget()`. Periodischer Kick alle 25 loops (forciert `g_servoTray->enable(0.5f) + moveToAngle(m_target_angle)` direkt, umgeht `m_tray_moving`-Check von `trayMoveTo()`). Safety-Notfall nach 500 loops (10s). Wichtige Erkenntnis: der 360°-Servo ignoriert manchmal den ersten Befehl → periodischer Re-Trigger nötig.
+- **v35_04_02 (2026-05-06): Konstanten erhöht für wide bars** — `CROSSING_STOP_LOOPS=150` (war 100, mehr Reading-Zeit), `SF360_TIMEOUT_LOOPS=60` (war 30, betrifft auch STATE_ARM_*-Exit-Wait).
 
 ## Projekt-Kontext
 - **Kurs:** ZHAW 2. Semester, Modul PM2
@@ -180,6 +196,7 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
+<<<<<<< HEAD
 1. **Erster breiter Balken — Farblesung debuggen:** Serial Monitor während Test laufen lassen. Am ersten breiten Balken `act=X` und `col=X` beobachten. Wenn `act=0`: Farbe wird nicht erkannt → prüfen ob `m_approach_fallback` aus STATE_REAL_START_PAUSE gesetzt wurde (Serial-Print `fb=m_approach_fallback` temporär hinzufügen). Falls Farbe nie gelesen wird: Farblesung auch in `STATE_BLIND` nach `all_sensors_active()` und in `STATE_BACKWARD` starten (Farbsensor überfährt Balken 1 während Rückwärtsfahrt).
 2. **GELB breite Balken isolieren:** Nur GELB-Karte auf Matte legen, `pio run --target upload`, prüfen ob `act=4` (GELB) gesetzt wird und `ph=0→1→2→3` im Serial erscheint. Falls `act=4` OK aber kein Jiggle: `STATE_ARM_GELB` Phase-Sequenz in Code prüfen.
 
@@ -188,6 +205,14 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **GELB breite Balken: Probleme** — unklar ob Farblesung (act=4 nicht gesetzt) oder Jiggle-Phase (ph hängt). Mit Serial Monitor isolieren.
 - **ROT_GELB_DRIVE_LOOPS=51 nicht final validiert** — 0.8cm weniger als vorher (war 55). Evtl. +/−1 Loop ≈ 2.2mm nötig.
 - **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Vor Inbetriebnahme prüfen.
+=======
+1. **GELB beim 3. breiten Balken zum Jiggeln bringen:** In `src/prototype03_v35_04_02.cpp` `runDeliverPhase()` Phase 0 die Kick-Frequenz erhöhen (von 25 auf 15 loops) UND/ODER den ersten Kick sofort statt erst nach Loop 25 absetzen. Dann `pio run --target upload` und Serial Monitor — beim 3. breiten Balken (GELB, 270°) prüfen ob `tray=` auf 270° läuft bevor `ph=` von 0 auf 1 wechselt. Falls immer noch Notfall-Timeout: `SF360_TIMEOUT_LOOPS` (Phase 0 Safety) auf 800 erhöhen oder Servo-Hardware checken.
+
+## Offene Fragen
+- **GELB beim 3. breiten Balken kein Jiggle** — Tray erreicht 270° nicht innerhalb 10s Notfall-Timeout. Kick-Mechanismus alle 25 loops reicht nicht für die längste Drehung (270° vs 90°/180° die funktionieren).
+- **ROT_GELB_DRIVE_LOOPS=51 noch nicht validiert** — 0.8cm Fahrdistanz nach ROT/GELB-Erkennung. Bei ROT funktionierte es heute, GELB konnte nicht getestet werden.
+- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, Pin-Layout sagt PC_6. Vor Inbetriebnahme prüfen ob physisch auf PB_2 oder PC_6 verdrahtet.
+>>>>>>> a7472cd667993ad4c9bef5386ae190df239b7cfe
 - **Arm-Tiefen nicht final validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01f ≈ 1.3mm höher falls zu tief.
 
 ## Session-Routine
