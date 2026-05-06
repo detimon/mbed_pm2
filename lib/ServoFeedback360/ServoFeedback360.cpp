@@ -82,6 +82,14 @@ void ServoFeedback360::stop()
     setServoSpeed(0.0f);
 }
 
+void ServoFeedback360::addSpeed(float extra)
+{
+    float s = m_speed + extra;
+    if (s >  1.0f) s =  1.0f;
+    if (s < -1.0f) s = -1.0f;
+    setServoSpeed(s);
+}
+
 void ServoFeedback360::disable()
 {
     m_speed = 0.0f;

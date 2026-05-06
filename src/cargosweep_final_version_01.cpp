@@ -1,13 +1,9 @@
-// CargoSweep — PROTOTYPE_03_V35_04_02
-// Per-Farbe-States: jede Farbe hat eigenen State mit hard-coded Tray-Winkel.
-// CROSSING_STOP und SMALL_CROSSING_STOP sind reine Dispatch-States.
-// STATE_ROT_GELB_DRIVE und STATE_ROT_GELB_PAUSE entfallen — Logik in
-// STATE_ARM_ROT / STATE_ARM_GELB integriert (Vorwärtsfahrt + Arm).
+// CargoSweep — Final Version 01
 #include "test_config.h"
 
-#ifdef PROTOTYPE_03_V35_04_02
+#ifdef CARGOSWEEP_FINAL_VERSION_01
 
-#include "prototype03_v35_04_02.h"
+#include "cargosweep_final_version_01.h"
 #include <cmath>
 #include "ColorSensor.h"
 #include "DCMotor.h"
@@ -77,8 +73,8 @@ static const float D1_RETRACTED       = 0.1f;
 static const float D1_EXTENDED        = 0.80f;
 static const float D2_UP              = 1.0f;
 static const float D2_PARTIAL_DOWN    = 0.50f;
-static const float D2_DOWN_BLAU       = 0.24f;
-static const float D2_DOWN_GRUEN      = 0.07f;
+static const float D2_DOWN_BLAU       = 0.27f;
+static const float D2_DOWN_GRUEN      = 0.10f;
 
 // PICKUP / DELIVER Timing
 static const int   PICKUP_PAUSE_LOOPS  = 50;
@@ -86,7 +82,7 @@ static const int   JIGGLE_LOOPS        = 50;
 static const int   RAISE_LOOPS         = 50;
 static const int   RETRACT_LOOPS       = 120;
 static const float JIGGLE_AMPL_DEG    = 6.0f;
-static const float D1_JIGGLE_OFFSET   = 0.05f;
+static const float D1_JIGGLE_OFFSET   = 0.09f;
 static const int   SF360_TIMEOUT_LOOPS = 150;  // war 60 — 3s fÃ¼r 270Â° GELB tray drehung
 
 static const int   ROT_GELB_DRIVE_LOOPS  = 51;
@@ -198,8 +194,19 @@ static int   m_approach_fallback   = 0;
 
 static bool  m_tray_moving         = false;
 static bool  m_small_line_mode     = false;
+static int   m_kick_ctr            = 0;    // kick loops remaining after angle change
+static float m_last_target_angle   = -1.0f;
 static int   m_line_count          = 0;   // counts all 8 lines (4 wide + 4 small)
 static bool  m_counting            = false; // starts after alignment
+
+// NeoPixel state machine
+enum NeoMode { NEO_CYCLE = 0, NEO_COLOR = 1, NEO_DRIVE_HOLD = 2, NEO_OFF_WAIT = 3 };
+static NeoMode m_neo_mode       = NEO_CYCLE;
+static int     m_neo_timer      = 0;
+static int     m_neo_held_color = 0;
+static const int NEO_DRIVE_HOLD_LOOPS = 150; // 3s hold after bar 4/8
+static const int NEO_OFF_LOOPS        = 50;  // 1s black
+static const int NEO_CYCLE_LOOPS      = 40;  // 0.8s per colour in cycle
 static int   m_home_timer          = 0;
 
 // ---------------------------------------------------------------------------
@@ -274,12 +281,58 @@ static void setNeoColor(int color)
     if (!g_np) return;
     switch (color) {
         case 3: g_np->setRGB(255,   0,   0); break;
-        case 4: g_np->setRGB(255, 200,   0); break;
+        case 4: g_np->setRGB(220, 220,   0); break;
         case 5: g_np->setRGB(  0, 255,   0); break;
         case 7: g_np->setRGB(  0,   0, 255); break;
         default: g_np->setRGB(5, 5, 5);      break;
     }
     g_np->show();
+}
+
+static void updateNeoPixel()
+{
+    if (!g_np) return;
+    switch (m_neo_mode) {
+
+        case NEO_CYCLE: {
+            // Cycle R→G→B→Y at 0.8s each — stays until arm state triggers NEO_COLOR
+            m_neo_timer++;
+            int phase = (m_neo_timer / NEO_CYCLE_LOOPS) % 4;
+            switch (phase) {
+                case 0: g_np->setRGB(200,   0,   0); break;
+                case 1: g_np->setRGB(  0, 200,   0); break;
+                case 2: g_np->setRGB(  0,   0, 200); break;
+                case 3: g_np->setRGB(200, 200,   0); break;
+            }
+            g_np->show();
+            break;
+        }
+
+        case NEO_COLOR:
+            setNeoColor(m_neo_held_color);
+            break;
+
+        case NEO_DRIVE_HOLD:
+            // Hold last delivery colour for 3s, then go dark
+            setNeoColor(m_neo_held_color);
+            m_neo_timer++;
+            if (m_neo_timer >= NEO_DRIVE_HOLD_LOOPS) {
+                m_neo_mode  = NEO_OFF_WAIT;
+                m_neo_timer = 0;
+            }
+            break;
+
+        case NEO_OFF_WAIT:
+            // Black for 1s, then colour cycle
+            g_np->setRGB(0, 0, 0);
+            g_np->show();
+            m_neo_timer++;
+            if (m_neo_timer >= NEO_OFF_LOOPS) {
+                m_neo_mode  = NEO_CYCLE;
+                m_neo_timer = 0;
+            }
+            break;
+    }
 }
 
 static void trayMoveTo(float deg)
@@ -355,15 +408,37 @@ static bool runDeliverPhase()
 static void serviceTray()
 {
     if (!g_servoTray) return;
-    g_servoTray->moveToAngle(m_target_angle);  // keep P-controller on current target
-    g_servoTray->update();
-    // Jiggle overlaid AFTER P-controller — square wave, never zero, can't be stopped
-    if (m_counting && m_state != STATE_FINAL_HALT) {
+    if (m_state == STATE_FINAL_HALT) return;
+
+    // Kick when target angle changes — breaks static friction under heavy cargo
+    if (m_target_angle != m_last_target_angle) {
+        m_kick_ctr          = 15;
+        m_last_target_angle = m_target_angle;
+    }
+
+    bool in_arm_state = (m_state == STATE_RED    || m_state == STATE_GREEN ||
+                         m_state == STATE_BLUE   || m_state == STATE_YELLOW);
+
+    if (m_kick_ctr > 0) {
+        // Kick: full-power burst toward target
+        g_servoTray->moveToAngle(m_target_angle);
+        g_servoTray->update();
+        float kick = (g_servoTray->getError() >= 0.0f) ? 0.91f : -0.91f;
+        g_servoTray->addSpeed(kick);
+        m_kick_ctr--;
+    } else if (in_arm_state) {
+        // Arm sequence: P-controller to target + jiggle for delivery
+        g_servoTray->moveToAngle(m_target_angle);
+        g_servoTray->update();
         static int s_jiggle_ctr = 0;
         float jiggle = ((s_jiggle_ctr % JIGGLE_LOOPS) < JIGGLE_LOOPS / 2)
                            ? 0.12f : -0.12f;
         g_servoTray->addSpeed(jiggle);
         s_jiggle_ctr++;
+    } else {
+        // Navigation: slow constant rotation, no P-controller
+        g_servoTray->stop();
+        g_servoTray->addSpeed(0.20f);
     }
 }
 
@@ -375,7 +450,7 @@ static void advanceTray()
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
-void roboter_v35_04_02_init(int /*loops_per_second*/)
+void cargosweep_final_v01_init(int /*loops_per_second*/)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -510,7 +585,7 @@ static void exitSmallLine()
 // ---------------------------------------------------------------------------
 // Task (50 Hz)
 // ---------------------------------------------------------------------------
-void roboter_v35_04_02_task(DigitalOut& led)
+void cargosweep_final_v01_task(DigitalOut& led)
 {
     // Enable 360° servo immediately on button press
     if (!m_sf360_ready && g_servoTray) {
@@ -533,18 +608,7 @@ void roboter_v35_04_02_task(DigitalOut& led)
         }
     }
 
-    {
-        uint8_t pr = 0, pg = 0, pb = 0;
-        switch (m_current_color) {
-            case 3: pr = 60;            break;
-            case 4: pr = 60; pg = 25;   break;
-            case 5: pg = 60;            break;
-            case 7: pb = 60;            break;
-            default: break;
-        }
-        g_np->setRGB(pr, pg, pb);
-        g_np->show();
-    }
+    updateNeoPixel();
 
     bool is_sig    = (m_current_color == 3 || m_current_color == 4 ||
                       m_current_color == 5 || m_current_color == 7);
@@ -581,7 +645,6 @@ void roboter_v35_04_02_task(DigitalOut& led)
             g_M1->setVelocity(VEL_SIGN * BLIND_SPEED);
             g_M2->setVelocity(VEL_SIGN * BLIND_SPEED);
             if (all_sensors_active() && m_sf360_ready) {
-                trayMoveTo(0.0f);
                 m_home_timer   = 150;
                 m_straight_ctr = STRAIGHT_LOOPS;
                 m_counting     = true;   // start counting lines after alignment
@@ -844,6 +907,11 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 m_color_fallback   = 0;
                 m_tray_timeout_ctr = 0;
                 m_small_line_mode  = false;
+                // Show delivery colour on NeoPixel as soon as robot stops at bar
+                if (m_action_color != 0) {
+                    m_neo_held_color = m_action_color;
+                    m_neo_mode       = NEO_COLOR;
+                }
                 switch (m_action_color) {
                     case 3: m_state = STATE_RED;    break;
                     case 4: m_state = STATE_YELLOW; break;
@@ -968,6 +1036,11 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 m_color_fallback   = 0;
                 m_tray_timeout_ctr = 0;
                 m_small_line_mode  = true;
+                // Show delivery colour on NeoPixel as soon as robot stops at bar
+                if (m_action_color != 0) {
+                    m_neo_held_color = m_action_color;
+                    m_neo_mode       = NEO_COLOR;
+                }
                 switch (m_action_color) {
                     case 3: m_state = STATE_RED;    break;
                     case 4: m_state = STATE_YELLOW; break;
@@ -1010,10 +1083,21 @@ void roboter_v35_04_02_task(DigitalOut& led)
                 g_M2->setVelocity(0.0f);
                 // Always count up; after 50 loops check angle; force at 100 loops (2s)
                 m_tray_timeout_ctr++;
-                bool tray_ready = (m_tray_timeout_ctr >= 100) ||
-                                  (m_tray_timeout_ctr >= 50 && trayNearTarget());
+                bool tray_ready = (m_tray_timeout_ctr >= 50) ||
+                                  (m_tray_timeout_ctr >= 25 && trayNearTarget());
                 if (tray_ready) {
                     if (runDeliverPhase()) {
+                        m_neo_held_color = m_action_color;
+                        if (m_line_count == 8) {
+                            m_neo_mode  = NEO_DRIVE_HOLD;
+                            m_neo_timer = 0;
+                        } else if (m_line_count == 4) {
+                            // Bar 4: hold 3s → off 1s → colour show
+                            m_neo_mode  = NEO_DRIVE_HOLD;
+                            m_neo_timer = 0;
+                        } else {
+                            m_neo_mode = NEO_COLOR;
+                        }
                         resetArmExitVars();
                         if (m_small_line_mode) exitSmallLine(); else exitWideBar();
                     }
@@ -1034,7 +1118,7 @@ void roboter_v35_04_02_task(DigitalOut& led)
 // ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
-void roboter_v35_04_02_reset(DigitalOut& led)
+void cargosweep_final_v01_reset(DigitalOut& led)
 {
     *g_en = 0;
     g_M1->setVelocity(0.0f);
@@ -1043,7 +1127,10 @@ void roboter_v35_04_02_reset(DigitalOut& led)
     if (g_servo_D1)  g_servo_D1->disable();
     if (g_servo_D2)  g_servo_D2->disable();
     if (g_servoTray) { g_servoTray->stop(); g_servoTray->disable(); }
-    if (g_np)        g_np->clear();
+    if (g_np)        { g_np->setRGB(0,0,0); g_np->show(); }
+    m_neo_mode       = NEO_CYCLE;
+    m_neo_timer      = 0;
+    m_neo_held_color = 0;
 
     m_state               = STATE_BLIND;
     m_sf360_warmup_ctr    = 0;
@@ -1091,7 +1178,7 @@ void roboter_v35_04_02_reset(DigitalOut& led)
 // ---------------------------------------------------------------------------
 // Print (~5 Hz)
 // ---------------------------------------------------------------------------
-void roboter_v35_04_02_print()
+void cargosweep_final_v01_print()
 {
     const char* s =
         (m_state == STATE_BLIND)               ? "BLIND       " :
@@ -1126,4 +1213,4 @@ void roboter_v35_04_02_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // PROTOTYPE_03_V35_04_02
+#endif // CARGOSWEEP_FINAL_VERSION_01

@@ -284,13 +284,13 @@ int ColorSensor::getColor()
     //   GELB:  30°–33°
     //   GRÜN:  90°–101°
     //   BLAU:  228°–237°  (kein Wrap mehr)
-    const float HUE_RED_MAX      =   5.0f;
-    const float HUE_YELLOW_MIN   =  30.0f;
-    const float HUE_YELLOW_MAX   =  33.0f;
-    const float HUE_GREEN_MIN    =  90.0f;
-    const float HUE_GREEN_MAX    = 101.0f;
-    const float HUE_BLUE_MIN     = 228.0f;
-    const float HUE_BLUE_MAX     = 237.0f;
+    const float HUE_RED_MAX      =  15.0f;   // war  5  — Puffer 10° zu GELB_MIN
+    const float HUE_YELLOW_MIN   =  25.0f;   // war 30  — Puffer 10° zu ROT_MAX
+    const float HUE_YELLOW_MAX   =  50.0f;   // war 33  — Puffer 15° zu GRÜN_MIN
+    const float HUE_GREEN_MIN    =  65.0f;   // war 90  — Puffer 15° zu GELB_MAX
+    const float HUE_GREEN_MAX    = 125.0f;   // war 101 — Puffer 85° zu BLAU_MIN
+    const float HUE_BLUE_MIN     = 210.0f;   // war 218 — Puffer 85° zu GRÜN_MAX
+    const float HUE_BLUE_MAX     = 255.0f;   // war 247 — Puffer 105° zu ROT_MAX(wrapped)
 
     const int STABLE_COUNT = 1;
 

@@ -74,6 +74,12 @@ public:
     void stop();
 
     /**
+     * @brief Add extra speed on top of whatever the P-controller last output.
+     *        Bypasses tolerance stop — use for jiggle overlay.
+     */
+    void addSpeed(float extra);
+
+    /**
      * @brief Cut the underlying bit-bang PWM entirely (DigitalOut held LOW).
      *        Use when the servo should be physically idle — eliminates any
      *        pulse-width jitter that ISR contention would otherwise cause.

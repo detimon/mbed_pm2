@@ -342,6 +342,13 @@
     #define TEST_RESET(led)   roboter_v35_04_02_reset(led)
     #define TEST_PRINT()      roboter_v35_04_02_print()
 
+#elif defined(CARGOSWEEP_FINAL_VERSION_01)
+    #include "cargosweep_final_version_01.h"
+    #define TEST_INIT(lps)    cargosweep_final_v01_init(lps)
+    #define TEST_TASK(led)    cargosweep_final_v01_task(led)
+    #define TEST_RESET(led)   cargosweep_final_v01_reset(led)
+    #define TEST_PRINT()      cargosweep_final_v01_print()
+
 #elif defined(TEST_LOGIC_ARM_STANDARD)
     #include "test_files/test_logic_arm_standard.h"
     #define TEST_INIT(lps)    logic_arm_standard_init(lps)

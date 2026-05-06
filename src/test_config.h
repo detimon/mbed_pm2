@@ -39,7 +39,8 @@
 // #define PROTOTYPE_03_V32_02
 // #define PROTOTYPE_03_V33_03
 // #define PROTOTYPE_03_V34_04_01
-#define PROTOTYPE_03_V35_04_02
+// #define PROTOTYPE_03_V35_04_02
+#define CARGOSWEEP_FINAL_VERSION_01
 
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
