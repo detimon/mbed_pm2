@@ -1,11 +1,11 @@
-﻿// CargoSweep â€” PROTOTYPE_03_V33_03
+﻿// CargoSweep â€” PROTOTYPE_03_V34_04_01
 // Kopie von v31_1. Einzige Ã„nderung: runPickupPhase() in STATE_CROSSING_STOP
 // und STATE_ROT_GELB_PAUSE durch runDeliverPhase() ersetzt.
 #include "test_config.h"
 
-#ifdef PROTOTYPE_03_V33_03
+#ifdef PROTOTYPE_03_V34_04_01
 
-#include "prototype03_v33_03.h"
+#include "prototype03_v34_04_01.h"
 #include "ColorSensor.h"
 #include "DCMotor.h"
 #include "LineFollower.h"
@@ -380,7 +380,7 @@ static void advanceTray()
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
-void roboter_v33_03_init(int /*loops_per_second*/)
+void roboter_v34_04_01_init(int /*loops_per_second*/)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -468,7 +468,7 @@ void roboter_v33_03_init(int /*loops_per_second*/)
 // ---------------------------------------------------------------------------
 // Task (50 Hz)
 // ---------------------------------------------------------------------------
-void roboter_v33_03_task(DigitalOut& led)
+void roboter_v34_04_01_task(DigitalOut& led)
 {
     m_current_color = g_cs->getColor();
 
@@ -803,7 +803,7 @@ void roboter_v33_03_task(DigitalOut& led)
             }
 
             if (m_arm_retract_ctr == 1) {
-                if (runDeliverPhase()) {   // <-- v33_03: deliver statt pickup
+                if (runDeliverPhase()) {   // <-- v34_04_01: deliver statt pickup
                     m_arm_retract_ctr = 0;
                     advanceTray();
                 }
@@ -1063,7 +1063,7 @@ void roboter_v33_03_task(DigitalOut& led)
             g_M2->setVelocity(0.0f);
 
             if (m_arm_retract_ctr == 1) {
-                if (runDeliverPhase()) {   // <-- v33_03: deliver statt pickup
+                if (runDeliverPhase()) {   // <-- v34_04_01: deliver statt pickup
                     m_arm_retract_ctr = 0;
                     advanceTray();
                 }
@@ -1113,7 +1113,7 @@ void roboter_v33_03_task(DigitalOut& led)
 // ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
-void roboter_v33_03_reset(DigitalOut& led)
+void roboter_v34_04_01_reset(DigitalOut& led)
 {
     *g_en = 0;
     g_M1->setVelocity(0.0f);
@@ -1172,7 +1172,7 @@ void roboter_v33_03_reset(DigitalOut& led)
 // ---------------------------------------------------------------------------
 // Print (~5 Hz)
 // ---------------------------------------------------------------------------
-void roboter_v33_03_print()
+void roboter_v34_04_01_print()
 {
     const char* s =
         (m_state == STATE_BLIND)               ? "BLIND       " :
@@ -1204,4 +1204,5 @@ void roboter_v33_03_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // PROTOTYPE_03_V33_03
+#endif // PROTOTYPE_03_V34_04_01
+

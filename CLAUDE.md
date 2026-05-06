@@ -2,19 +2,20 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06)
-- **`PROTOTYPE_03_V33_03` aktiv** in `test_config.h`. V32_02 als Backup.
-- **V33_03 = Kopie von V32_02** mit NeoPixel-Farbanzeige, m_approach_fallback, angepassten Arm-Tiefen und mehreren Jiggle-Fixes.
-- **V33_03 Änderungen gegenüber V32_02:**
+- **`PROTOTYPE_03_V34_04_01` aktiv** in `test_config.h`. V33_03 als Backup.
+- **V34_04_01 = Kopie von V33_03** — noch identisch, bereit für Per-Farbe-State-Umbau.
+- **V33_03 Änderungen gegenüber V32_02 (alle in V34_04_01 enthalten):**
   - NeoPixel (PC_5): zeigt Live-Farblesung 50× pro Sekunde (dimm: r/g/b=60)
-  - `m_approach_fallback`: Farbe wird während REAL_APPROACH gelesen → letzter Fallback wenn CROSSING_STOP nichts liest
-  - D2-Tiefen angehoben: `D2_DOWN_BLAU=0.24f` (war 0.22), `D2_DOWN_GRUEN=0.07f` (war 0.05)
-  - `SF360_TIMEOUT_LOOPS`: 250 → **100** (Phase 0 wartet max. 2s auf Tray statt 5s)
-  - GRÜN/BLAU arm-Start **sofort bei CROSSING_STOP-Eintritt** wenn `m_color_fallback` gesetzt (nicht erst bei ctr==75)
-  - SMALL_CROSSING_STOP reading block startet arm für GRÜN/BLAU sofort bei Erkennung (nicht nur bei ctr==75)
-  - SMALL_CROSSING_STOP ctr==75 fallback: `&& m_arm_retract_ctr == 0` Guard (verhindert Arm-Reset wenn bereits läuft)
+  - `m_approach_fallback` wird bei REAL_APPROACH→CROSSING_STOP sofort als `m_color_fallback` verwendet (bar 1 Fix)
+  - D2-Tiefen: `D2_DOWN_BLAU=0.24f`, `D2_DOWN_GRUEN=0.07f`
+  - `SF360_TIMEOUT_LOOPS=30` (Phase 0 wartet max. 0.6s auf Tray)
+  - `COLOR_STOP_STABLE_CNT=1` (alle Farben, auch ROT/GELB, brauchen nur 1 stabile Lesung im Stop)
+  - Arm-Start sofort bei CROSSING_STOP-Eintritt wenn `m_color_fallback` gesetzt (für GRÜN/BLAU)
+  - SMALL_CROSSING_STOP: Arm startet bei Erkennung im reading block; ctr==75 Guard `&& m_arm_retract_ctr==0`
   - Reading blocks nutzen `m_current_color` statt zweitem `g_cs->getColor()`-Call
-  - `m_action_color = m_rot_gelb_color` vor ROT_GELB_PAUSE (GELB-Tiefen-Bug: depthForColor(0) gab immer GRUEN-Tiefe statt BLAU-Tiefe)
-- **STATUS: Jiggle funktioniert IMMERNOCH NICHT** — trotz aller obigen Fixes. Kompiliert erfolgreich. Nicht klar ob ph=0→1→2→3 durchläuft oder irgendwo steckt.
+  - `m_action_color = m_rot_gelb_color` vor ROT_GELB_PAUSE (GELB Tiefen-Bug behoben)
+- **STATUS: Jiggle immernoch nicht zuverlässig** — nächster Schritt ist Umbau auf Per-Farbe-States in V34_04_01.
+- **Nächster Umbau geplant: Per-Farbe-States** — `STATE_ARM_BLAU`, `STATE_ARM_GRUEN`, `STATE_ARM_ROT`, `STATE_ARM_GELB` + Small-Varianten. Detaillierter Implementierungs-Prompt liegt vor (in CLAUDE.md Abschnitt "Nächste Schritte").
 
 ## Stack
 - Sprache: C++14
@@ -151,6 +152,11 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v33_03 (2026-05-06): NeoPixel an PC_5** — Live-Farbanzeige 50Hz, dimm (r/g/b=60 statt 255). Für helle Anzeige beim Stopp: `setNeoColor()` in reading blocks. Überschrieben von Live-Loop, aber korrekt beim Halt sichtbar.
 - **v33_03 (2026-05-06): Jiggle-Fix-Versuch — alle Code-Pfade behoben, Jiggle immernoch nicht sichtbar** — GRÜN/BLAU arm-Start bei CROSSING_STOP-Eintritt; GELB depthForColor-Bug (m_action_color=0 → m_rot_gelb_color restored); Phase-Reset-Guard; Timeout 250→100. Nächster Debug-Schritt: Serial Monitor ph=-Counter live beobachten.
 - **v33_03 (2026-05-06): m_approach_fallback** — liest Farbe während REAL_APPROACH als letzten Fallback wenn CROSSING_STOP Lese-Fenster nichts erkennt. Wird nur in CROSSING_STOP ctr==75 als Notfall genutzt.
+- **v34_04_01 (2026-05-06): Aktiver Arbeits-Zweig** — Kopie von v33_03. Enthält alle v33_03-Fixes. Nächster Schritt: Per-Farbe-States. V33_03 bleibt als Backup unverändert.
+- **v34_04_01 (2026-05-06): Per-Farbe-States geplant** — CROSSING_STOP/SMALL_CROSSING_STOP werden reine Dispatch-States. 8 neue States: STATE_ARM_BLAU/GRUEN/ROT/GELB + STATE_SMALL_ARM_*. Jeder State hat hard-coded Tray-Winkel (BLAU=180°, GRÜN=90°, ROT=0°+Drive, GELB=270°+Drive). STATE_ROT_GELB_DRIVE + STATE_ROT_GELB_PAUSE werden entfernt. colorToSlot()/COLOR_ANGLE[] werden entfernt.
+- **v34_04_01 (2026-05-06): COLOR_STOP_STABLE_CNT=1** — alle Farben brauchen nur 1 stabile Lesung im Stop (auch ROT/GELB).
+- **v34_04_01 (2026-05-06): SF360_TIMEOUT_LOOPS=30** — Phase 0 (Tray-Warten) bricht nach 0.6s ab.
+- **v34_04_01 (2026-05-06): m_approach_fallback bei REAL_APPROACH-Entry direkt als m_color_fallback** — `if (m_color_fallback == 0) m_color_fallback = m_approach_fallback;` vor dem Entry-Block. Löst bar-1-Problem (kein Fallback aus REAL_APPROACH in v32_02).
 - **v31_1 (2026-05-05): m_color_fallback Reset bei allen Exits** — `m_color_fallback = 0` in CROSSING_STOP-Exit, SMALL_CROSSING_STOP-Exit und ROT_GELB_PAUSE-Exit. Verhindert dass alte Farbe beim nächsten Balken den Tray zum falschen Winkel schickt.
 - **v30_1 (2026-05-02): trayStop() nur für GRÜN/BLAU vor Weiterfahrt** — ROT/GELB-Exit aus CROSSING_STOP und SMALL_CROSSING_STOP ruft trayStop() NICHT auf. Servo hält Farb-Winkel aktiv während ROT_GELB_DRIVE. trayStop() erst am Ende von ROT_GELB_PAUSE. Grund: ohne Torque dreht Tray während Fahrt weg → Phase 0 muss erst korrigieren → Jiggle verzögert oder fehlt.
 - **v30_1 (2026-05-02): Phase 0 Stale-Error-Fix** — `fresh_at_target = (m_phase_ctr >= 2) && isAtTarget()` in runPickupPhase() und runDeliverPhase(). Verhindert sofortigen Phase-0-Exit mit eingefrorenem m_error vom letzten disable() (update() noch nicht gelaufen).
@@ -174,16 +180,13 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Serial Monitor anschliessen und `ph=`-Counter beim Stopp beobachten:** `pio device monitor` (115200 baud). Beim Stopp an einem Balken: zeigt Serial `ph=0`, dann `ph=1`, `ph=2`, `ph=3`? Falls `ph` nie über 0 hinauskommt → Phase 0 (Tray-Wait) hängt. Falls `ph=0` und nie wechselt: `SF360_TIMEOUT_LOOPS` möglicherweise zu hoch, oder `m_arm_retract_ctr` wird nie 1.
-2. **Falls ph=0 hängt:** `SF360_TIMEOUT_LOOPS` auf 20 senken (0.4s, Notfall-Wert) um zu prüfen ob arm-Phasen danach laufen.
-3. **Falls ph=1 läuft aber kein sichtbarer Arm:** D2 Servo-Pin prüfen — Code hat `servo_D2(PB_2)`, Pin-Layout sagt PC_6. Falls D2 falsch angeschlossen oder falscher Pin → Arm streckt sich (D1) aber senkt sich nicht (D2).
+1. **Per-Farbe-States in `src/prototype03_v34_04_01.cpp` implementieren:** `CROSSING_STOP` und `SMALL_CROSSING_STOP` werden reine Dispatch-States. Neue States hinzufügen: `STATE_ARM_BLAU` (tray 180°), `STATE_ARM_GRUEN` (tray 90°), `STATE_ARM_ROT` (tray 0° + vorwärtsfahren), `STATE_ARM_GELB` (tray 270° + vorwärtsfahren) + je eine `STATE_SMALL_ARM_*`-Variante für Schmallinien. Jeder State: hard-coded Winkel, `runDeliverPhase()`, Exit zurück zu REAL_FOLLOW/SMALL_FOLLOW. `STATE_ROT_GELB_DRIVE` und `STATE_ROT_GELB_PAUSE` werden durch `STATE_ARM_ROT/GELB` ersetzt. Detaillierter Plan mit Code-Snippets liegt im letzten Chat-Verlauf vor.
 
 ## Offene Fragen
-- **Jiggle funktioniert nicht trotz aller Software-Fixes** — Alle logischen Bugs behoben (Arm-Start-Timing, Tray-Tiefe, Phase-Reset-Guard, Timeout). Jiggle läuft immernoch nicht. Ursache unbekannt — muss via Serial Monitor `ph=`-Counter diagnostiziert werden.
-- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Falls physisch auf PC_6 aber Code auf PB_2 → D2 bewegt sich nie → Arm senkt nicht ab.
-- **ROT/GELB Farberkennung evtl. zu streng** — ROT/GELB brauchen noch 3 stabile Lesungen; falls act=0 → kein Arm. Falls Problem auftritt → auf 1 reduzieren wie GRÜN/BLAU.
-- **ROT_GELB_DRIVE_LOOPS=51 nicht validiert** — 0.8cm Reduktion. Evtl. Feinabstimmung nötig.
-- **Arm-Tiefen V33_03 nicht validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01 ≈ 1.3mm höher falls zu tief.
+- **Jiggle-Ursache nicht abschliessend geklärt** — Alle bekannten Software-Bugs behoben. Verdacht: zu komplexer gemeinsamer CROSSING_STOP-State → Lösung: Per-Farbe-States (nächster Schritt).
+- **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Vor Inbetriebnahme prüfen ob physisch auf PB_2 oder PC_6 verdrahtet.
+- **ROT_GELB_DRIVE_LOOPS=51 nicht validiert** — 0.8cm Fahrdistanz. Nach Umbau neu prüfen.
+- **Arm-Tiefen nicht validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01f ≈ 1.3mm höher falls zu tief.
 - **Linefollower-Problem mit unebener Matte** — SENSOR_THRESHOLD=0.40f evtl. erhöhen auf 0.55f. Noch nicht implementiert.
 
 ## Session-Routine
