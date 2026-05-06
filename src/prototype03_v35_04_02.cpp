@@ -1,13 +1,13 @@
-// CargoSweep — PROTOTYPE_03_V34_04_01
+// CargoSweep — PROTOTYPE_03_V35_04_02
 // Per-Farbe-States: jede Farbe hat eigenen State mit hard-coded Tray-Winkel.
 // CROSSING_STOP und SMALL_CROSSING_STOP sind reine Dispatch-States.
 // STATE_ROT_GELB_DRIVE und STATE_ROT_GELB_PAUSE entfallen — Logik in
 // STATE_ARM_ROT / STATE_ARM_GELB integriert (Vorwärtsfahrt + Arm).
 #include "test_config.h"
 
-#ifdef PROTOTYPE_03_V34_04_01
+#ifdef PROTOTYPE_03_V35_04_02
 
-#include "prototype03_v34_04_01.h"
+#include "prototype03_v35_04_02.h"
 #include "ColorSensor.h"
 #include "DCMotor.h"
 #include "LineFollower.h"
@@ -382,7 +382,7 @@ static void advanceTray()
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
-void roboter_v34_04_01_init(int /*loops_per_second*/)
+void roboter_v35_04_02_init(int /*loops_per_second*/)
 {
     static DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1,
                              GEAR_RATIO, KN, VOLTAGE_MAX);
@@ -519,7 +519,7 @@ static void exitSmallLine()
 // ---------------------------------------------------------------------------
 // Task (50 Hz)
 // ---------------------------------------------------------------------------
-void roboter_v34_04_01_task(DigitalOut& led)
+void roboter_v35_04_02_task(DigitalOut& led)
 {
     m_current_color = g_cs->getColor();
 
@@ -1297,7 +1297,7 @@ void roboter_v34_04_01_task(DigitalOut& led)
 // ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
-void roboter_v34_04_01_reset(DigitalOut& led)
+void roboter_v35_04_02_reset(DigitalOut& led)
 {
     *g_en = 0;
     g_M1->setVelocity(0.0f);
@@ -1354,7 +1354,7 @@ void roboter_v34_04_01_reset(DigitalOut& led)
 // ---------------------------------------------------------------------------
 // Print (~5 Hz)
 // ---------------------------------------------------------------------------
-void roboter_v34_04_01_print()
+void roboter_v35_04_02_print()
 {
     const char* s =
         (m_state == STATE_BLIND)               ? "BLIND       " :
@@ -1393,4 +1393,4 @@ void roboter_v34_04_01_print()
            ColorSensor::getColorString(m_action_color));
 }
 
-#endif // PROTOTYPE_03_V34_04_01
+#endif // PROTOTYPE_03_V35_04_02

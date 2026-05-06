@@ -2,20 +2,17 @@
 
 ## Aktueller Stand
 _Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-06)
-- **`PROTOTYPE_03_V34_04_01` aktiv** in `test_config.h`. V33_03 als Backup.
-- **V34_04_01 = Kopie von V33_03** — noch identisch, bereit für Per-Farbe-State-Umbau.
-- **V33_03 Änderungen gegenüber V32_02 (alle in V34_04_01 enthalten):**
-  - NeoPixel (PC_5): zeigt Live-Farblesung 50× pro Sekunde (dimm: r/g/b=60)
-  - `m_approach_fallback` wird bei REAL_APPROACH→CROSSING_STOP sofort als `m_color_fallback` verwendet (bar 1 Fix)
-  - D2-Tiefen: `D2_DOWN_BLAU=0.24f`, `D2_DOWN_GRUEN=0.07f`
-  - `SF360_TIMEOUT_LOOPS=30` (Phase 0 wartet max. 0.6s auf Tray)
-  - `COLOR_STOP_STABLE_CNT=1` (alle Farben, auch ROT/GELB, brauchen nur 1 stabile Lesung im Stop)
-  - Arm-Start sofort bei CROSSING_STOP-Eintritt wenn `m_color_fallback` gesetzt (für GRÜN/BLAU)
-  - SMALL_CROSSING_STOP: Arm startet bei Erkennung im reading block; ctr==75 Guard `&& m_arm_retract_ctr==0`
-  - Reading blocks nutzen `m_current_color` statt zweitem `g_cs->getColor()`-Call
-  - `m_action_color = m_rot_gelb_color` vor ROT_GELB_PAUSE (GELB Tiefen-Bug behoben)
-- **STATUS: Jiggle immernoch nicht zuverlässig** — nächster Schritt ist Umbau auf Per-Farbe-States in V34_04_01.
-- **Nächster Umbau geplant: Per-Farbe-States** — `STATE_ARM_BLAU`, `STATE_ARM_GRUEN`, `STATE_ARM_ROT`, `STATE_ARM_GELB` + Small-Varianten. Detaillierter Implementierungs-Prompt liegt vor (in CLAUDE.md Abschnitt "Nächste Schritte").
+- **`PROTOTYPE_03_V35_04_02` aktiv** in `test_config.h`. V34_04_01 als Backup.
+- **V35_04_02 = Kopie von V34_04_01** — identisch, bereit für Feintuning der breiten Balken.
+- **Per-Farbe-States implementiert und in v34_04_01 umgesetzt:**
+  - 8 neue States: `STATE_ARM_{ROT,GELB,GRUEN,BLAU}` + `STATE_SMALL_ARM_{ROT,GELB,GRUEN,BLAU}`
+  - `STATE_CROSSING_STOP` + `STATE_SMALL_CROSSING_STOP` sind reine Dispatch-States (lesen Farbe → gehen sofort in per-Farbe-State)
+  - `STATE_ROT_GELB_DRIVE` + `STATE_ROT_GELB_PAUSE` entfernt — Logik in `STATE_ARM_ROT/GELB` integriert
+  - Hard-coded Winkel: `ANGLE_ROT=0°`, `ANGLE_GRUEN=90°`, `ANGLE_BLAU=180°`, `ANGLE_GELB=270°`
+  - Helper-Funktionen: `resetArmExitVars()`, `exitWideBar()`, `exitSmallLine()` für DRY-Exit
+  - Print-Output: `dr=N` (drive_ctr) zusätzlich zu `ph=N`
+- **STATUS: Schmale Balken (STATE_SMALL_ARM_*) funktionieren perfekt** — Ablage-Sequenz läuft zuverlässig.
+- **Breite Balken (STATE_ARM_*) noch nicht validiert** — nächster Test-Schritt.
 
 ## Stack
 - Sprache: C++14
@@ -152,6 +149,8 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **v33_03 (2026-05-06): NeoPixel an PC_5** — Live-Farbanzeige 50Hz, dimm (r/g/b=60 statt 255). Für helle Anzeige beim Stopp: `setNeoColor()` in reading blocks. Überschrieben von Live-Loop, aber korrekt beim Halt sichtbar.
 - **v33_03 (2026-05-06): Jiggle-Fix-Versuch — alle Code-Pfade behoben, Jiggle immernoch nicht sichtbar** — GRÜN/BLAU arm-Start bei CROSSING_STOP-Eintritt; GELB depthForColor-Bug (m_action_color=0 → m_rot_gelb_color restored); Phase-Reset-Guard; Timeout 250→100. Nächster Debug-Schritt: Serial Monitor ph=-Counter live beobachten.
 - **v33_03 (2026-05-06): m_approach_fallback** — liest Farbe während REAL_APPROACH als letzten Fallback wenn CROSSING_STOP Lese-Fenster nichts erkennt. Wird nur in CROSSING_STOP ctr==75 als Notfall genutzt.
+- **v35_04_02 (2026-05-06): Aktiver Arbeits-Zweig** — Kopie von v34_04_01 (Per-Farbe-States). Schmale Balken getestet und funktionieren perfekt. Breite Balken nächster Schritt.
+- **v34_04_01 (2026-05-06): Per-Farbe-States implementiert** — CROSSING_STOP/SMALL_CROSSING_STOP = Dispatch. 8 States: STATE_ARM_{ROT=0°,GRUEN=90°,BLAU=180°,GELB=270°} + SMALL_ARM_*. ROT/GELB: Phase A Fahrt (ROT_GELB_DRIVE_LOOPS=51) + Phase B Arm. Helper: resetArmExitVars(), exitWideBar(), exitSmallLine(). m_drive_ctr neu. colorToSlot/COLOR_ANGLE/m_rot_gelb_color/m_rot_gelb_is_small entfernt.
 - **v34_04_01 (2026-05-06): Aktiver Arbeits-Zweig** — Kopie von v33_03. Enthält alle v33_03-Fixes. Nächster Schritt: Per-Farbe-States. V33_03 bleibt als Backup unverändert.
 - **v34_04_01 (2026-05-06): Per-Farbe-States geplant** — CROSSING_STOP/SMALL_CROSSING_STOP werden reine Dispatch-States. 8 neue States: STATE_ARM_BLAU/GRUEN/ROT/GELB + STATE_SMALL_ARM_*. Jeder State hat hard-coded Tray-Winkel (BLAU=180°, GRÜN=90°, ROT=0°+Drive, GELB=270°+Drive). STATE_ROT_GELB_DRIVE + STATE_ROT_GELB_PAUSE werden entfernt. colorToSlot()/COLOR_ANGLE[] werden entfernt.
 - **v34_04_01 (2026-05-06): COLOR_STOP_STABLE_CNT=1** — alle Farben brauchen nur 1 stabile Lesung im Stop (auch ROT/GELB).
@@ -180,13 +179,13 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Per-Farbe-States in `src/prototype03_v34_04_01.cpp` implementieren:** `CROSSING_STOP` und `SMALL_CROSSING_STOP` werden reine Dispatch-States. Neue States hinzufügen: `STATE_ARM_BLAU` (tray 180°), `STATE_ARM_GRUEN` (tray 90°), `STATE_ARM_ROT` (tray 0° + vorwärtsfahren), `STATE_ARM_GELB` (tray 270° + vorwärtsfahren) + je eine `STATE_SMALL_ARM_*`-Variante für Schmallinien. Jeder State: hard-coded Winkel, `runDeliverPhase()`, Exit zurück zu REAL_FOLLOW/SMALL_FOLLOW. `STATE_ROT_GELB_DRIVE` und `STATE_ROT_GELB_PAUSE` werden durch `STATE_ARM_ROT/GELB` ersetzt. Detaillierter Plan mit Code-Snippets liegt im letzten Chat-Verlauf vor.
+1. **Breite Balken in `src/prototype03_v35_04_02.cpp` testen und genau gleich wie schmale Balken zum Laufen bringen:** `pio run --target upload` → Serial Monitor öffnen → Roboter über ersten breiten Balken fahren → prüfen ob Serial `ARM_GRUEN` / `ARM_BLAU` / `ARM_ROT` / `ARM_GELB` anzeigt und `ph=0→1→2→3` durchläuft. Falls Arm nicht startet: `act=FARBE` und `tray=IST/SOLL` im Serial-Output beobachten und melden.
 
 ## Offene Fragen
-- **Jiggle-Ursache nicht abschliessend geklärt** — Alle bekannten Software-Bugs behoben. Verdacht: zu komplexer gemeinsamer CROSSING_STOP-State → Lösung: Per-Farbe-States (nächster Schritt).
+- **Breite Balken (STATE_ARM_*) noch nicht validiert** — schmale Balken laufen perfekt, breite noch nicht getestet. Gleicher Code-Pfad, sollte funktionieren.
+- **ROT_GELB_DRIVE_LOOPS=51 noch nicht validiert** — 0.8cm weniger als vorher (war 55). Evtl. Feinabstimmung nötig (+/−1 Loop ≈ 2.2mm).
 - **D2 Servo Pin unklar** — Code hat `servo_D2(PB_2)`, CLAUDE.md Pin-Layout sagt PC_6 (= PB_D2). Vor Inbetriebnahme prüfen ob physisch auf PB_2 oder PC_6 verdrahtet.
-- **ROT_GELB_DRIVE_LOOPS=51 nicht validiert** — 0.8cm Fahrdistanz. Nach Umbau neu prüfen.
-- **Arm-Tiefen nicht validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01f ≈ 1.3mm höher falls zu tief.
+- **Arm-Tiefen nicht final validiert:** D2_DOWN_GRUEN=0.07f, D2_DOWN_BLAU=0.24f. +0.01f ≈ 1.3mm höher falls zu tief.
 - **Linefollower-Problem mit unebener Matte** — SENSOR_THRESHOLD=0.40f evtl. erhöhen auf 0.55f. Noch nicht implementiert.
 
 ## Session-Routine
