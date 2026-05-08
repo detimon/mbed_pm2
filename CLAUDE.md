@@ -1,22 +1,24 @@
-# mbed_pm — PES Board Roboter (Nucleo F446RE)
+﻿# mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-07)
-- **`CARGOSWEEP_FINAL_VERSION_01` aktiv** in `test_config.h`. v35_04_02 als Backup.
-- **cargosweep_final_version_01 funktioniert sehr gut** — alle 8 Balken (4 breit + 4 schmal), alle 4 Farben zuverlässig.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-08)
+- **`CARGOSWEEP_FINAL_VERSION_05` aktiv** in `test_config.h`. v04 als Backup.
+- **PROJEKT ABGESCHLOSSEN** — alles funktioniert, Abgabe 23.05.2026.
+- **v05 Session 2026-05-08:** STATE_TUNNEL_FOLLOW komplett neu — 3-Phasen-Ansatz statt aggressiver PID. TUNNEL_CURVE_BIAS und alle tunnel-spezifischen Konstanten (KP_TUNNEL, KP_NL_TUNNEL, MAX_SPEED_TUNNEL) entfernt.
+- **STATE_TUNNEL_FOLLOW Architektur (v05):**
+  - Phase A (0–100 loops = 2s): Normaler Linefollower (KP=2.8, KP_NL=4.55) mit Anlauframpe (50 loops)
+  - Phase B (100–175 loops = 1.5s): Beide Motoren geradeaus MAX_SPEED, kein Lenken
+  - Phase C (>175 loops): Normaler Linefollower bis Schmallinie erkannt
+  - Ergebnis: Roboter landet gerade auf B3/B4 nach dem Tunnel
 - **Architektur (finale Version):**
   - 4 Farb-States (STATE_RED/GREEN/BLUE/YELLOW) mit identischer Logik, m_small_line_mode für Exit
-  - Immer-Jiggle via `addSpeed()` (square wave ±0.12, overrides P-controller)
-  - Kick-Mechanismus beim Winkelwechsel (±0.91 für 15 loops) für schwere Pakete
-  - Konstante Rotation (0.20) wenn keine Farbe sichtbar
+  - Immer-Jiggle via `addSpeed()` (square wave ±0.35f, overrides P-controller in Phase 2)
+  - Kick-Mechanismus beim Winkelwechsel (25 loops) für schwere Pakete
   - 8-Linien-Zähler (m_line_count, m_counting) — stoppt nach 4+4
-  - Pre-Adjust nur in REAL_APPROACH/REAL_FOLLOW/SMALL_FOLLOW
-  - m_color_fallback nach STATE_BACKWARD gecleart
-  - ServoFeedback360: `addSpeed(float)` neu hinzugefügt
-- **NeoPixel-Sequenz:** Farbenshow (R/G/B/Y) bei Ausrichten → Farbe bei Balken 1-3 → nach Balken 4 (breit+schmal): 3s Farbe → 1s schwarz → Farbenshow. User-Button-Stop schaltet LED aus.
-- **Tuning-Werte:** D1_JIGGLE_OFFSET=0.09, D2_DOWN_BLAU=0.27, D2_DOWN_GRUEN=0.10, SF360_KP=0.005, Kick=±0.91, Rotation=0.20, Wartezeit=1s (50 loops)
-- **Hue-Grenzen neu:** ROT 0°–15°, GELB 25°–50°, GRÜN 65°–125°, BLAU 210°–255°
-- **Letzter offener Schritt:** Linefollower verbessern für Tunnel-Kurve
+  - Pre-Adjust in REAL_APPROACH/REAL_FOLLOW/SMALL_FOLLOW/TUNNEL_FOLLOW
+  - NeoPixel: Farbenshow → Farbe bei Balken 1-3 → nach Bar 4+8: 3s Farbe → 1s schwarz → Farbenshow
+- **Tuning-Werte:** D1_JIGGLE_OFFSET=0.09, D2_DOWN_BLAU=0.25, D2_DOWN_GRUEN=0.10, SF360_KP=0.005, JIGGLE_AMPL_DEG=10.5°, JIGGLE_LOOPS=65, SF360_TIMEOUT_LOOPS=150
+- **Hue-Grenzen:** ROT 0°–15°, GELB 25°–50°, GRÜN 65°–125°, BLAU 210°–255°
 
 ## Stack
 - Sprache: C++14
@@ -190,10 +192,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **Linefollower für Tunnel verbessern:** In `cargosweep_final_version_01.cpp` KP/KP_NL-Werte in STATE_REAL_FOLLOW und STATE_SMALL_FOLLOW anpassen damit der Roboter auch enge Kurven (Tunnel) zuverlässig durchfährt. Kandidaten: MAX_LINE_STEER erhöhen, KP_NL erhöhen, oder eine Kurven-Erkennungslogik hinzufügen.
+1. **Projekt abgeschlossen.** Abgabe 23.05.2026. Bei Bedarf: `pio run --target upload` mit `CARGOSWEEP_FINAL_VERSION_05` flashen.
 
 ## Offene Fragen
-- **Tunnel-Kurve:** Linefollower verliert die Linie in engen Kurven. Muss noch angepasst werden bevor Abgabe (23.05.2026).
+- Keine offenen technischen Fragen — Projekt abgeschlossen.
 
 ## Session-Routine
 Am Ende jeder Session:

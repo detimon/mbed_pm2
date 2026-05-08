@@ -349,6 +349,34 @@
     #define TEST_RESET(led)   cargosweep_final_v01_reset(led)
     #define TEST_PRINT()      cargosweep_final_v01_print()
 
+#elif defined(CARGOSWEEP_FINAL_VERSION_02)
+    #include "cargosweep_final_version_02.h"
+    #define TEST_INIT(lps)    cargosweep_final_v02_init(lps)
+    #define TEST_TASK(led)    cargosweep_final_v02_task(led)
+    #define TEST_RESET(led)   cargosweep_final_v02_reset(led)
+    #define TEST_PRINT()      cargosweep_final_v02_print()
+
+#elif defined(CARGOSWEEP_FINAL_VERSION_03)
+    #include "cargosweep_final_version_03.h"
+    #define TEST_INIT(lps)    cargosweep_final_v03_init(lps)
+    #define TEST_TASK(led)    cargosweep_final_v03_task(led)
+    #define TEST_RESET(led)   cargosweep_final_v03_reset(led)
+    #define TEST_PRINT()      cargosweep_final_v03_print()
+
+#elif defined(CARGOSWEEP_FINAL_VERSION_04)
+    #include "cargosweep_final_version_04.h"
+    #define TEST_INIT(lps)    cargosweep_final_v04_init(lps)
+    #define TEST_TASK(led)    cargosweep_final_v04_task(led)
+    #define TEST_RESET(led)   cargosweep_final_v04_reset(led)
+    #define TEST_PRINT()      cargosweep_final_v04_print()
+
+#elif defined(CARGOSWEEP_FINAL_VERSION_05)
+    #include "cargosweep_final_version_05.h"
+    #define TEST_INIT(lps)    cargosweep_final_v05_init(lps)
+    #define TEST_TASK(led)    cargosweep_final_v05_task(led)
+    #define TEST_RESET(led)   cargosweep_final_v05_reset(led)
+    #define TEST_PRINT()      cargosweep_final_v05_print()
+
 #elif defined(TEST_LOGIC_ARM_STANDARD)
     #include "test_files/test_logic_arm_standard.h"
     #define TEST_INIT(lps)    logic_arm_standard_init(lps)
@@ -415,10 +443,12 @@ bool do_execute_main_task = false;
 bool do_reset_all_once    = false;
 
 DebounceIn user_button(BUTTON1);
+Timer      button_guard_timer;
 void toggle_do_execute_main_fcn();
 
 int main()
 {
+    button_guard_timer.start();
     user_button.fall(&toggle_do_execute_main_fcn);
 
     const int main_task_period_ms = 20;
@@ -459,6 +489,12 @@ int main()
 
 void toggle_do_execute_main_fcn()
 {
+    // Zusätzlicher Software-Guard gegen Bouncing beim Loslassen:
+    // DebounceIn filtert nur 20ms beim Drücken; beim Release entstehen
+    // weitere falling-edges, die sonst ein zweites Toggle auslösen würden.
+    if (button_guard_timer.elapsed_time() < 200ms) return;
+    button_guard_timer.reset();
+
     do_execute_main_task = !do_execute_main_task;
     do_reset_all_once = true;
 }

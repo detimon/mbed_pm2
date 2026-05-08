@@ -94,6 +94,12 @@ public:
      */
     void enable(float pulse = 0.5f);
 
+    /**
+     * @brief Lock rotation to one direction.
+     * @param dir  +1 = CW only, -1 = CCW only, 0 = shortest path (default).
+     */
+    void setDirectionLock(int dir);
+
 private:
     void setServoSpeed(float speed);
 
@@ -121,6 +127,7 @@ private:
     float m_tolerance_deg;
     float m_min_speed;
     float m_angle_offset;
+    int   m_direction_lock;  // +1=CW only, -1=CCW only, 0=shortest-path (default)
 };
 
 #endif // SERVO_FEEDBACK_360_H_

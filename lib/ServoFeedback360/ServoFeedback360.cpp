@@ -13,7 +13,8 @@ ServoFeedback360::ServoFeedback360(PinName pwm_pin, PinName feedback_pin,
       m_speed(0.0f),
       m_tolerance_deg(tolerance_deg),
       m_min_speed(min_speed),
-      m_angle_offset(angle_offset)
+      m_angle_offset(angle_offset),
+      m_direction_lock(0)
 {
     m_servo.calibratePulseMinMax(PULSE_CALIB_MIN, PULSE_CALIB_MAX);
     // Enable immediately with stop pulse so the servo gets a defined signal.
@@ -32,10 +33,27 @@ void ServoFeedback360::update()
         m_current_deg = angle;
     }
 
-    // Shortest-path error over the 0°/360° discontinuity.
-    m_error = m_target_deg - m_current_deg;
-    if (m_error >  180.0f) m_error -= 360.0f;
-    if (m_error < -180.0f) m_error += 360.0f;
+    // Error calculation — direction-locked or shortest-path.
+    if (m_direction_lock == 1) {
+        // CW only: use CW distance, stop within tolerance on either side
+        float cw_dist = fmodf(m_target_deg - m_current_deg + 360.0f, 360.0f);
+        if (cw_dist < m_tolerance_deg || cw_dist > 360.0f - m_tolerance_deg)
+            m_error = 0.0f;
+        else
+            m_error = cw_dist;  // positive = CW
+    } else if (m_direction_lock == -1) {
+        // CCW only: use CCW distance, stop within tolerance on either side
+        float ccw_dist = fmodf(m_current_deg - m_target_deg + 360.0f, 360.0f);
+        if (ccw_dist < m_tolerance_deg || ccw_dist > 360.0f - m_tolerance_deg)
+            m_error = 0.0f;
+        else
+            m_error = -ccw_dist;  // negative = CCW
+    } else {
+        // Shortest path (default)
+        m_error = m_target_deg - m_current_deg;
+        if (m_error >  180.0f) m_error -= 360.0f;
+        if (m_error < -180.0f) m_error += 360.0f;
+    }
 
     if (fabsf(m_error) < m_tolerance_deg) {
         m_speed = 0.0f;
@@ -88,6 +106,11 @@ void ServoFeedback360::addSpeed(float extra)
     if (s >  1.0f) s =  1.0f;
     if (s < -1.0f) s = -1.0f;
     setServoSpeed(s);
+}
+
+void ServoFeedback360::setDirectionLock(int dir)
+{
+    m_direction_lock = dir;
 }
 
 void ServoFeedback360::disable()
