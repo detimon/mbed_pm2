@@ -1,4 +1,4 @@
-// CargoSweep — Team 5 | 2026-05-11
+﻿// CargoSweep — Team 5 | 2026-05-11
 // Refactored from cargosweep_final_version_05.cpp
 // States: 20 → 15 (merged alignment + crossing stop states, renamed for clarity)
 // Logic and timing: UNCHANGED from Version 05.
@@ -86,7 +86,8 @@ static const float D1_EXTENDED_BLAU   = 0.87f;          // ~7 mm extra extension
 static const float D2_UP              = 1.0f;           // D2 vollständig eingefahren (Transportposition)
 static const float D2_PARTIAL_DOWN    = 0.50f;          // D2 halb abgesenkt (nicht verwendet)
 static const float D2_DOWN_BLAU       = 0.25f;          // D2 Ablegetiefe für BLAU-Behälter
-static const float D2_DOWN_GRUEN      = 0.10f;          // D2 Ablegetiefe für GRÜN-Behälter (flacher als BLAU)
+static const float D2_DOWN_GRUEN      = 0.10f;          // D2 Ablegetiefe für GRÜN-Behälter (flacher als BLAU)
+static const float D2_SMALL_DESCENT_ACCEL = 4.0f;          // Sanfte D2-Absenkung bei Schmallinien (~0.6 s Hub)
 
 // ===========================================================================
 // Ablage-Sequenz Timing
@@ -94,14 +95,20 @@ static const float D2_DOWN_GRUEN      = 0.10f;          // D2 Ablegetiefe für G
 static const int   PICKUP_PAUSE_LOOPS  = 50;            // 1 s Pause nach D1-Ausfahren — Tray stabilisiert sich
 static const int   D2_DOWN_DELAY_LOOPS = 23;            // 0.45 s pause before lowering arm — lets tray settle at carry angle
 static const int   D2_DOWN_ONLY_LOOPS  = 12;            // 0.24 s D2-only drop before D1 extends — prevents collision while swinging out
-static const int   JIGGLE_LOOPS        = 65;            // 1.3 s jiggle duration — +15 loops vs earlier version for heavier packages
+static const int   JIGGLE_LOOPS        = 65;            // 1.3 s jiggle duration — +15 loops vs earlier version for heavier packages
+static const int   JIGGLE_LOOPS_SMALL   = 25;            // 0.5 s jiggle fuer Schmallinien
+static const int   JIGGLE_LOOPS_LAST_WIDE  = 25;            // 0.5 s jiggle letzter breiter Balken (bar 4)
 static const int   RAISE_LOOPS         = 50;            // 1 s zum Hochfahren von D1+D2 nach Ablage
 static const int   RETRACT_LOOPS       = 120;           // 2.4 s zum vollständigen Einfahren von D1
-static const float JIGGLE_AMPL_DEG    = 10.5f;          // ±10.5° tray oscillation amplitude — just enough to dislodge packages
-static const float D1_JIGGLE_OFFSET   = 0.09f;          // D1 oscillation half-amplitude in pulse-width units (~7 mm)
+static const float JIGGLE_AMPL_DEG    = 11.0f;          // ±10.5° tray oscillation amplitude — just enough to dislodge packages
+static const float D1_JIGGLE_OFFSET   = 0.09f;          // D1 oscillation half-amplitude in pulse-width units (~7 mm)
+static const float D1_JIGGLE_OFFSET_SMALL  = 0.065f;       // D1 Amplitude Schmallinien (~8/11 skaliert)
+static const float D1_JIGGLE_OFFSET_LAST_WIDE = 0.070f;      // D1 Amplitude letzter breiter Balken (minimale Reduktion)
 static const int   D1_JIGGLE_PERIOD   = 30;             // D1 oscillation period: one full cycle every 0.6 s (30 loops)
 static const int   TRAY_JIGGLE_PERIOD = 30;             // Tray oscillation period: one full cycle every 0.6 s
-static const float TRAY_JIGGLE_SPEED  = 0.35f;          // addSpeed magnitude — must exceed dead-band + min_speed to override P-controller
+static const float TRAY_JIGGLE_SPEED  = 0.35f;          // addSpeed magnitude — must exceed dead-band + min_speed to override P-controller
+static const float TRAY_JIGGLE_SPEED_SMALL = 0.25f;        // Tray Amplitude Schmallinien (~8/11 skaliert)
+static const float TRAY_JIGGLE_SPEED_LAST_WIDE = 0.25f;       // Tray Amplitude letzter breiter Balken (9.5/11 skaliert)
 static const int   SF360_TIMEOUT_LOOPS = 150;           // Yellow needs 270° rotation — 60 loops was too short, 150 gives margin
 
 static const int   ROT_GELB_DRIVE_LOOPS  = 51;          // 1.02 s Vorwärtsfahrt für ROT/GELB zum richtigen Ablage-Slot
@@ -240,7 +247,8 @@ static const int NEO_DRIVE_HOLD_LOOPS = 150; // 3 s Farb-Hold nach letztem Balke
 static const int NEO_OFF_LOOPS        = 50;  // 1 s Schwarzphase nach Hold
 static const int NEO_CYCLE_LOOPS      = 40;  // 0.8 s pro Farbe im Farbzyklus
 
-static int   m_home_timer          = 0;     // Zählt 3 s ab bis Tray nach Ausrichtung gestoppt wird
+static int   m_home_timer          = 0;
+static int   m_startup_delay       = 150;   // 3 s Wartezeit nach Button-Druck vor Losfahren
 
 // ===========================================================================
 // Sensor-Hilfsfunktionen
@@ -445,6 +453,7 @@ static bool runDeliverPhase()
     // Phase 0: D2 nur runter — D1 und Tray bleiben beim Carry-Winkel.
     if (m_deliver_phase == 0) {
         if (m_deliver_ctr == 0) {
+            if (m_small_line_mode) g_servo_D2->setMaxAcceleration(D2_SMALL_DESCENT_ACCEL);
             g_servo_D2->enable(depthForColor(m_action_color));
         }
         m_deliver_ctr++;
@@ -463,13 +472,17 @@ static bool runDeliverPhase()
     }
     // Phase 2: D1 Jiggle — Puls-Breitenmodulation ±D1_JIGGLE_OFFSET mit D1_JIGGLE_PERIOD.
     if (m_deliver_phase == 2) {
-        const float base = extensionForColor(m_action_color);
+        const float base    = extensionForColor(m_action_color);
+        const bool  is_last_wide = (!m_small_line_mode && m_line_count == 4);
+        const float jig_off = m_small_line_mode ? D1_JIGGLE_OFFSET_SMALL  :
+                              is_last_wide    ? D1_JIGGLE_OFFSET_LAST_WIDE : D1_JIGGLE_OFFSET;
+        const int   jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
         const int   half = D1_JIGGLE_PERIOD / 2;
         int p = m_deliver_ctr % D1_JIGGLE_PERIOD;
-        if      (p == 0)    g_servo_D1->setPulseWidth(base + D1_JIGGLE_OFFSET);
-        else if (p == half) g_servo_D1->setPulseWidth(base - D1_JIGGLE_OFFSET);
+        if      (p == 0)    g_servo_D1->setPulseWidth(base + jig_off);
+        else if (p == half) g_servo_D1->setPulseWidth(base - jig_off);
         m_deliver_ctr++;
-        if (m_deliver_ctr >= JIGGLE_LOOPS) {
+        if (m_deliver_ctr >= jig_end) {
             g_servo_D1->setPulseWidth(base);
             m_deliver_phase = 3;
             m_deliver_ctr   = 0;
@@ -479,6 +492,7 @@ static bool runDeliverPhase()
     // Phase 3: Arm hochfahren — D2 hoch, D1 sofort einziehen (keine Rampe).
     if (m_deliver_phase == 3) {
         if (m_deliver_ctr == 0) {
+            g_servo_D2->setMaxAcceleration(1.0e6f);
             g_servo_D2->setPulseWidth(D2_UP);
             g_servo_D1->setMaxAcceleration(1.0e6f); // sofortige Bewegung ohne Rampe
             g_servo_D1->setPulseWidth(D1_RETRACTED);
@@ -533,14 +547,17 @@ static void serviceTray()
                 static int s_jiggle_ctr = 0;
                 const int half = TRAY_JIGGLE_PERIOD / 2;
                 int p = s_jiggle_ctr % TRAY_JIGGLE_PERIOD;
-                float jiggle = (p < half) ? +TRAY_JIGGLE_SPEED : -TRAY_JIGGLE_SPEED;
+                bool  is_last_wide = (!m_small_line_mode && m_line_count == 4);
+                float spd = m_small_line_mode ? TRAY_JIGGLE_SPEED_SMALL :
+                            is_last_wide   ? TRAY_JIGGLE_SPEED_LAST_WIDE : TRAY_JIGGLE_SPEED;
+                float jiggle = (p < half) ? +spd : -spd;
                 g_servoTray->addSpeed(jiggle);
                 s_jiggle_ctr++;
             }
         } else {
             // Ausserhalb Fenster: Servo stoppen + Kick-Geschwindigkeit addieren
             g_servoTray->stop();
-            float speed = (m_kick_ctr > 0) ? -0.35f : -0.27f;
+            float speed = (m_kick_ctr > 0) ? -0.40f : -0.30f;
             if (m_kick_ctr > 0) m_kick_ctr--;
             g_servoTray->addSpeed(speed);
         }
@@ -548,7 +565,7 @@ static void serviceTray()
         // Navigation: langsame CCW-Drehung zum Vorausrichten, Kick bei neuem Ziel
         g_servoTray->update();
         g_servoTray->stop();
-        float nav_speed = (m_kick_ctr > 0) ? -0.35f : -0.27f;
+        float nav_speed = (m_kick_ctr > 0) ? -0.40f : -0.30f;
         if (m_kick_ctr > 0) m_kick_ctr--;
         g_servoTray->addSpeed(nav_speed);
     }
@@ -663,6 +680,7 @@ void cargosweep_team5_20260511_init(int /*loops_per_second*/)
     m_color_pending       = 0;
     m_color_fallback      = 0;
     m_approach_fallback   = 0;
+    m_startup_delay       = 150;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     g_M1->setVelocity(0.0f);
     g_M2->setVelocity(0.0f);
@@ -789,6 +807,12 @@ void cargosweep_team5_20260511_task(DigitalOut& led)
             // Erst beim Triggern werden Servos (D1, D2, Tray) aktiviert und der Linienzähler gestartet.
             // Achtung: Tray bleibt bis hier deaktiviert — kein serviceTray()-Effekt vor diesem Trigger.
             // Übergang → STATE_ALIGN_STRAIGHT sobald all_sensors_active() ≥7 Sensoren aktiv ist.
+            if (m_startup_delay > 0) {
+                m_startup_delay--;
+                g_M1->setVelocity(0.0f);
+                g_M2->setVelocity(0.0f);
+                break;
+            }
             g_M1->setVelocity(VEL_SIGN * BLIND_SPEED);
             g_M2->setVelocity(VEL_SIGN * BLIND_SPEED);
             if (all_sensors_active()) {
@@ -1381,6 +1405,7 @@ void cargosweep_team5_20260511_reset(DigitalOut& led)
     m_color_fallback      = 0;
     m_approach_fallback   = 0;
     m_home_timer          = 0;
+    m_startup_delay       = 150;
     for (int i = 0; i < 8; i++) m_color_log[i] = 0;
     led = 0;
 }
