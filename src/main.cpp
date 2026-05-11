@@ -377,6 +377,13 @@
     #define TEST_RESET(led)   cargosweep_final_v05_reset(led)
     #define TEST_PRINT()      cargosweep_final_v05_print()
 
+#elif defined(CARGOSWEEP_TEAM5_20260511)
+    #include "cargosweep_team5_20260511.h"
+    #define TEST_INIT(lps)    cargosweep_team5_20260511_init(lps)
+    #define TEST_TASK(led)    cargosweep_team5_20260511_task(led)
+    #define TEST_RESET(led)   cargosweep_team5_20260511_reset(led)
+    #define TEST_PRINT()      cargosweep_team5_20260511_print()
+
 #elif defined(TEST_LOGIC_ARM_STANDARD)
     #include "test_files/test_logic_arm_standard.h"
     #define TEST_INIT(lps)    logic_arm_standard_init(lps)
