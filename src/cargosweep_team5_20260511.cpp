@@ -95,20 +95,30 @@ static const float D2_SMALL_DESCENT_ACCEL = 4.0f;          // Sanfte D2-Absenkun
 static const int   PICKUP_PAUSE_LOOPS  = 50;            // 1 s Pause nach D1-Ausfahren — Tray stabilisiert sich
 static const int   D2_DOWN_DELAY_LOOPS = 23;            // 0.45 s pause before lowering arm — lets tray settle at carry angle
 static const int   D2_DOWN_ONLY_LOOPS  = 12;            // 0.24 s D2-only drop before D1 extends — prevents collision while swinging out
-static const int   JIGGLE_LOOPS        = 65;            // 1.3 s jiggle duration — +15 loops vs earlier version for heavier packages
+static const int   JIGGLE_LOOPS        = 65;            // 1.3 s jiggle duration (alle breiten Balken)
 static const int   JIGGLE_LOOPS_SMALL   = 25;            // 0.5 s jiggle fuer Schmallinien
-static const int   JIGGLE_LOOPS_LAST_WIDE  = 25;            // 0.5 s jiggle letzter breiter Balken (bar 4)
+static const int   JIGGLE_RAMP_LOOPS    = 12;            // 0.24 s Auf-/Abrampe der Jiggle-Amplitude
 static const int   RAISE_LOOPS         = 50;            // 1 s zum Hochfahren von D1+D2 nach Ablage
+static const int   WIDE_BAR_SETTLE_LOOPS = 5;             // 0.1 s Pause nach Jiggle vor Hochfahren (nur breite Balken)
 static const int   RETRACT_LOOPS       = 120;           // 2.4 s zum vollständigen Einfahren von D1
-static const float JIGGLE_AMPL_DEG    = 11.0f;          // ±10.5° tray oscillation amplitude — just enough to dislodge packages
-static const float D1_JIGGLE_OFFSET   = 0.09f;          // D1 oscillation half-amplitude in pulse-width units (~7 mm)
-static const float D1_JIGGLE_OFFSET_SMALL  = 0.065f;       // D1 Amplitude Schmallinien (~8/11 skaliert)
-static const float D1_JIGGLE_OFFSET_LAST_WIDE = 0.070f;      // D1 Amplitude letzter breiter Balken (minimale Reduktion)
+static const float JIGGLE_AMPL_DEG            = 11.0f;   // Referenzwinkel (unused direct; Amp via D1_JIGGLE_OFFSET / TRAY_JIGGLE_SPEED)
+static const float D1_JIGGLE_OFFSET_BAR1      = 0.098f;   // D1 Amplitude Balken 1 (12 Grad)
+static const float D1_JIGGLE_OFFSET           = 0.09f;    // D1 Amplitude Balken 2 (11 Grad)
+static const float D1_JIGGLE_OFFSET_SMALL     = 0.057f;   // D1 Amplitude Schmallinien (~7 Grad)
+static const float D1_JIGGLE_OFFSET_BAR3      = 0.082f;   // D1 Amplitude Balken 3 (10 Grad)
+static const float D1_JIGGLE_OFFSET_LAST_WIDE = 0.070f;   // D1 Amplitude Balken 4 ( 9 Grad)
 static const int   D1_JIGGLE_PERIOD   = 30;             // D1 oscillation period: one full cycle every 0.6 s (30 loops)
 static const int   TRAY_JIGGLE_PERIOD = 30;             // Tray oscillation period: one full cycle every 0.6 s
-static const float TRAY_JIGGLE_SPEED  = 0.35f;          // addSpeed magnitude — must exceed dead-band + min_speed to override P-controller
-static const float TRAY_JIGGLE_SPEED_SMALL = 0.25f;        // Tray Amplitude Schmallinien (~8/11 skaliert)
-static const float TRAY_JIGGLE_SPEED_LAST_WIDE = 0.25f;       // Tray Amplitude letzter breiter Balken (9.5/11 skaliert)
+static const float TRAY_JIGGLE_SPEED_BAR1      = 0.38f;   // Tray Amplitude Balken 1 (12 Grad)
+static const float TRAY_JIGGLE_SPEED_BAR1_CCW  = 0.38f;   // Tray Balken 1 in Karussel  (12 Grad, symmetrisch)
+static const float TRAY_JIGGLE_SPEED          = 0.35f;   // Tray Amplitude Balken 2 (11 Grad)
+static const float TRAY_JIGGLE_SPEED_CCW        = 0.31f;   // Tray Balken 2 in Karussel  ( 9.8 Grad)
+static const float TRAY_JIGGLE_SPEED_SMALL_CW  = 0.25f;   // Tray Schmallinien gegen Karussel (~8 Grad)
+static const float TRAY_JIGGLE_SPEED_SMALL_CCW = 0.19f;   // Tray Schmallinien in Karussel  (~6 Grad)
+static const float TRAY_JIGGLE_SPEED_BAR3      = 0.32f;   // Tray Amplitude Balken 3 (10 Grad)
+static const float TRAY_JIGGLE_SPEED_BAR3_CCW  = 0.28f;   // Tray Balken 3 in Karussel  ( 8.8 Grad)
+static const float TRAY_JIGGLE_SPEED_LAST_WIDE = 0.25f;   // Tray Amplitude Balken 4 ( 9 Grad)
+static const float TRAY_JIGGLE_SPEED_LAST_WIDE_CCW = 0.21f; // Tray Balken 4 in Karussel  ( 7.8 Grad)
 static const int   SF360_TIMEOUT_LOOPS = 150;           // Yellow needs 270° rotation — 60 loops was too short, 150 gives margin
 
 static const int   ROT_GELB_DRIVE_LOOPS  = 51;          // 1.02 s Vorwärtsfahrt für ROT/GELB zum richtigen Ablage-Slot
@@ -450,55 +460,80 @@ static void applyJiggleTick(int tick)
 // ===========================================================================
 static bool runDeliverPhase()
 {
-    // Phase 0: D2 nur runter — D1 und Tray bleiben beim Carry-Winkel.
+    // Phase 0: Warten bis Tray den Zielwinkel erreicht hat (verhindert Ablage bei falschem Winkel).
     if (m_deliver_phase == 0) {
+        m_deliver_ctr++;
+        float ccw = fmodf(g_servoTray->getCurrentAngle() - m_target_angle + 360.0f, 360.0f);
+        bool tray_ok = (ccw <= 35.0f) || (ccw >= 185.0f) || (m_deliver_ctr >= SF360_TIMEOUT_LOOPS);
+        if (tray_ok) { m_deliver_phase = 1; m_deliver_ctr = 0; }
+        return false;
+    }
+    // Phase 1: D2 nur runter — D1 und Tray bleiben beim Carry-Winkel.
+    if (m_deliver_phase == 1) {
         if (m_deliver_ctr == 0) {
-            if (m_small_line_mode) g_servo_D2->setMaxAcceleration(D2_SMALL_DESCENT_ACCEL);
+            g_servo_D2->setMaxAcceleration(D2_SMALL_DESCENT_ACCEL);
             g_servo_D2->enable(depthForColor(m_action_color));
         }
         m_deliver_ctr++;
-        if (m_deliver_ctr >= D2_DOWN_ONLY_LOOPS) { m_deliver_phase = 1; m_deliver_ctr = 0; }
+        if (m_deliver_ctr >= D2_DOWN_ONLY_LOOPS) { m_deliver_phase = 2; m_deliver_ctr = 0; }
         return false;
     }
-    // Phase 1: D1 raus + Tray auf Zielwinkel korrigieren.
-    if (m_deliver_phase == 1) {
+    // Phase 2: D1 raus + Tray auf Zielwinkel korrigieren.
+    if (m_deliver_phase == 2) {
         if (m_deliver_ctr == 0) {
             g_servo_D1->enable(extensionForColor(m_action_color));
             m_target_angle = angleForColor(m_action_color);
         }
         m_deliver_ctr++;
-        if (m_deliver_ctr >= PICKUP_PAUSE_LOOPS) { m_deliver_phase = 2; m_deliver_ctr = 0; }
+        if (m_deliver_ctr >= PICKUP_PAUSE_LOOPS) { m_deliver_phase = 3; m_deliver_ctr = 0; }
         return false;
     }
-    // Phase 2: D1 Jiggle — Puls-Breitenmodulation ±D1_JIGGLE_OFFSET mit D1_JIGGLE_PERIOD.
-    if (m_deliver_phase == 2) {
+    // Phase 3: D1 Jiggle — Puls-Breitenmodulation ±D1_JIGGLE_OFFSET mit D1_JIGGLE_PERIOD.
+    if (m_deliver_phase == 3) {
         const float base    = extensionForColor(m_action_color);
-        const bool  is_last_wide = (!m_small_line_mode && m_line_count == 4);
-        const float jig_off = m_small_line_mode ? D1_JIGGLE_OFFSET_SMALL  :
-                              is_last_wide    ? D1_JIGGLE_OFFSET_LAST_WIDE : D1_JIGGLE_OFFSET;
-        const int   jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
+        float jig_off;
+        if (m_small_line_mode) {
+            jig_off = D1_JIGGLE_OFFSET_SMALL;
+        } else {
+            switch (m_line_count) {
+                case 1:  jig_off = D1_JIGGLE_OFFSET_BAR1;      break;
+                case 3:  jig_off = D1_JIGGLE_OFFSET_BAR3;      break;
+                case 4:  jig_off = D1_JIGGLE_OFFSET_LAST_WIDE; break;
+                default: jig_off = D1_JIGGLE_OFFSET;           break;
+            }
+        }
+        const int jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
+        // Amplituden-Envelope: 0 -> max -> 0 ueber die Jiggle-Phase
+        const int   ramp = (JIGGLE_RAMP_LOOPS < jig_end / 3) ? JIGGLE_RAMP_LOOPS : jig_end / 3;
+        float       t;
+        if      (m_deliver_ctr < ramp)            t = (float)(m_deliver_ctr + 1) / ramp;
+        else if (m_deliver_ctr >= jig_end - ramp) t = (float)(jig_end - m_deliver_ctr) / ramp;
+        else                                      t = 1.0f;
+        if (t < 0.0f) t = 0.0f;
+        const float eff_off = jig_off * t;
         const int   half = D1_JIGGLE_PERIOD / 2;
         int p = m_deliver_ctr % D1_JIGGLE_PERIOD;
-        if      (p == 0)    g_servo_D1->setPulseWidth(base + jig_off);
-        else if (p == half) g_servo_D1->setPulseWidth(base - jig_off);
+        if      (p == 0)    g_servo_D1->setPulseWidth(base + eff_off);
+        else if (p == half) g_servo_D1->setPulseWidth(base - eff_off);
         m_deliver_ctr++;
         if (m_deliver_ctr >= jig_end) {
             g_servo_D1->setPulseWidth(base);
-            m_deliver_phase = 3;
+            m_deliver_phase = 4;
             m_deliver_ctr   = 0;
         }
         return false;
     }
-    // Phase 3: Arm hochfahren — D2 hoch, D1 sofort einziehen (keine Rampe).
-    if (m_deliver_phase == 3) {
-        if (m_deliver_ctr == 0) {
+    // Phase 4: 0.1 s Settle-Pause (breite Balken) + Arm hochfahren.
+    if (m_deliver_phase == 4) {
+        const int settle = m_small_line_mode ? 0 : WIDE_BAR_SETTLE_LOOPS;
+        if (m_deliver_ctr == settle) {
             g_servo_D2->setMaxAcceleration(1.0e6f);
             g_servo_D2->setPulseWidth(D2_UP);
-            g_servo_D1->setMaxAcceleration(1.0e6f); // sofortige Bewegung ohne Rampe
+            g_servo_D1->setMaxAcceleration(1.0e6f);
             g_servo_D1->setPulseWidth(D1_RETRACTED);
         }
         m_deliver_ctr++;
-        if (m_deliver_ctr >= RAISE_LOOPS) {
+        if (m_deliver_ctr >= RAISE_LOOPS + settle) {
             g_servo_D1->disable();
             return true;
         }
@@ -542,15 +577,32 @@ static void serviceTray()
         bool in_window = (ccw_dist <= 35.0f) || (ccw_dist >= 185.0f);
 
         if (in_window) {
-            if (m_deliver_phase == 2) {
+            if (m_deliver_phase == 3) {
                 // Tray-Jiggle in Phase 2: Square-Wave ±TRAY_JIGGLE_SPEED überschreibt P-Regler
                 static int s_jiggle_ctr = 0;
                 const int half = TRAY_JIGGLE_PERIOD / 2;
                 int p = s_jiggle_ctr % TRAY_JIGGLE_PERIOD;
-                bool  is_last_wide = (!m_small_line_mode && m_line_count == 4);
-                float spd = m_small_line_mode ? TRAY_JIGGLE_SPEED_SMALL :
-                            is_last_wide   ? TRAY_JIGGLE_SPEED_LAST_WIDE : TRAY_JIGGLE_SPEED;
-                float jiggle = (p < half) ? +spd : -spd;
+                float spd_pos, spd_neg;
+                if (m_small_line_mode) {
+                    spd_pos = TRAY_JIGGLE_SPEED_SMALL_CW;   // gegen Karussel
+                    spd_neg = TRAY_JIGGLE_SPEED_SMALL_CCW;  // in Karussel
+                } else {
+                    switch (m_line_count) {
+                        case 1:  spd_pos = TRAY_JIGGLE_SPEED_BAR1;          spd_neg = TRAY_JIGGLE_SPEED_BAR1_CCW;      break;
+                        case 3:  spd_pos = TRAY_JIGGLE_SPEED_BAR3;          spd_neg = TRAY_JIGGLE_SPEED_BAR3_CCW;      break;
+                        case 4:  spd_pos = TRAY_JIGGLE_SPEED_LAST_WIDE;     spd_neg = TRAY_JIGGLE_SPEED_LAST_WIDE_CCW; break;
+                        default: spd_pos = TRAY_JIGGLE_SPEED;               spd_neg = TRAY_JIGGLE_SPEED_CCW;           break;
+                    }
+                }
+                // Gleiche Amplituden-Envelope wie D1 (basiert auf m_deliver_ctr)
+                const int jig_end_t = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
+                const int ramp_t = (JIGGLE_RAMP_LOOPS < jig_end_t / 3) ? JIGGLE_RAMP_LOOPS : jig_end_t / 3;
+                float t2;
+                if      (m_deliver_ctr < ramp_t)                t2 = (float)(m_deliver_ctr + 1) / ramp_t;
+                else if (m_deliver_ctr >= jig_end_t - ramp_t)  t2 = (float)(jig_end_t - m_deliver_ctr) / ramp_t;
+                else                                            t2 = 1.0f;
+                if (t2 < 0.0f) t2 = 0.0f;
+                float jiggle = (p < half) ? +spd_pos * t2 : -spd_neg * t2;
                 g_servoTray->addSpeed(jiggle);
                 s_jiggle_ctr++;
             }
