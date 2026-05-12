@@ -87,7 +87,7 @@ static const float D2_UP              = 1.0f;           // D2 vollständig einge
 static const float D2_PARTIAL_DOWN    = 0.50f;          // D2 halb abgesenkt (nicht verwendet)
 static const float D2_DOWN_BLAU       = 0.25f;          // D2 Ablegetiefe für BLAU-Behälter
 static const float D2_DOWN_GRUEN      = 0.10f;          // D2 Ablegetiefe für GRÜN-Behälter (flacher als BLAU)
-static const float D2_SMALL_DESCENT_ACCEL = 4.0f;          // Sanfte D2-Absenkung bei Schmallinien (~0.6 s Hub)
+static const float D2_SMALL_DESCENT_ACCEL = 3.5f;        // Sanfte D2-Absenkung bei allen Stops
 
 // ===========================================================================
 // Ablage-Sequenz Timing
@@ -97,28 +97,20 @@ static const int   D2_DOWN_DELAY_LOOPS = 23;            // 0.45 s pause before l
 static const int   D2_DOWN_ONLY_LOOPS  = 12;            // 0.24 s D2-only drop before D1 extends — prevents collision while swinging out
 static const int   JIGGLE_LOOPS        = 65;            // 1.3 s jiggle duration (alle breiten Balken)
 static const int   JIGGLE_LOOPS_SMALL   = 25;            // 0.5 s jiggle fuer Schmallinien
-static const int   JIGGLE_RAMP_LOOPS    = 12;            // 0.24 s Auf-/Abrampe der Jiggle-Amplitude
-static const int   RAISE_LOOPS         = 50;            // 1 s zum Hochfahren von D1+D2 nach Ablage
+static const int   JIGGLE_RAMP_LOOPS    = 18;            // 0.36 s Auf-/Abrampe der Jiggle-Amplitude (smoother)
+static const int   RAISE_LOOPS         = 60;            // 1.2 s zum Hochfahren (mehr Zeit fuer sanfte Beschleunigung)
 static const int   WIDE_BAR_SETTLE_LOOPS = 5;             // 0.1 s Pause nach Jiggle vor Hochfahren (nur breite Balken)
+static const float D1_RETRACT_ACCEL    = 5.0f;           // Sanftes Einziehen D1 beim Hochfahren
+static const float D2_RAISE_ACCEL      = 3.0f;           // Sanftes Hochfahren D2 nach Ablage
 static const int   RETRACT_LOOPS       = 120;           // 2.4 s zum vollständigen Einfahren von D1
 static const float JIGGLE_AMPL_DEG            = 11.0f;   // Referenzwinkel (unused direct; Amp via D1_JIGGLE_OFFSET / TRAY_JIGGLE_SPEED)
-static const float D1_JIGGLE_OFFSET_BAR1      = 0.098f;   // D1 Amplitude Balken 1 (12 Grad)
-static const float D1_JIGGLE_OFFSET           = 0.09f;    // D1 Amplitude Balken 2 (11 Grad)
+static const float D1_JIGGLE_OFFSET           = 0.098f;  // D1 Amplitude alle breiten Balken (12 Grad)
 static const float D1_JIGGLE_OFFSET_SMALL     = 0.057f;   // D1 Amplitude Schmallinien (~7 Grad)
-static const float D1_JIGGLE_OFFSET_BAR3      = 0.082f;   // D1 Amplitude Balken 3 (10 Grad)
-static const float D1_JIGGLE_OFFSET_LAST_WIDE = 0.070f;   // D1 Amplitude Balken 4 ( 9 Grad)
 static const int   D1_JIGGLE_PERIOD   = 30;             // D1 oscillation period: one full cycle every 0.6 s (30 loops)
 static const int   TRAY_JIGGLE_PERIOD = 30;             // Tray oscillation period: one full cycle every 0.6 s
-static const float TRAY_JIGGLE_SPEED_BAR1      = 0.38f;   // Tray Amplitude Balken 1 (12 Grad)
-static const float TRAY_JIGGLE_SPEED_BAR1_CCW  = 0.38f;   // Tray Balken 1 in Karussel  (12 Grad, symmetrisch)
-static const float TRAY_JIGGLE_SPEED          = 0.35f;   // Tray Amplitude Balken 2 (11 Grad)
-static const float TRAY_JIGGLE_SPEED_CCW        = 0.31f;   // Tray Balken 2 in Karussel  ( 9.8 Grad)
-static const float TRAY_JIGGLE_SPEED_SMALL_CW  = 0.25f;   // Tray Schmallinien gegen Karussel (~8 Grad)
-static const float TRAY_JIGGLE_SPEED_SMALL_CCW = 0.19f;   // Tray Schmallinien in Karussel  (~6 Grad)
-static const float TRAY_JIGGLE_SPEED_BAR3      = 0.32f;   // Tray Amplitude Balken 3 (10 Grad)
-static const float TRAY_JIGGLE_SPEED_BAR3_CCW  = 0.28f;   // Tray Balken 3 in Karussel  ( 8.8 Grad)
-static const float TRAY_JIGGLE_SPEED_LAST_WIDE = 0.25f;   // Tray Amplitude Balken 4 ( 9 Grad)
-static const float TRAY_JIGGLE_SPEED_LAST_WIDE_CCW = 0.21f; // Tray Balken 4 in Karussel  ( 7.8 Grad)
+static const float TRAY_JIG_CW                = 0.38f;   // 12 Grad gegen Karussel (alle Stops)
+static const float TRAY_JIG_CCW_SMALL          = 0.19f;   //  6 Grad in Karussel    (Schmallinien 1-3)
+static const float TRAY_JIG_CCW_WIDE           = 0.22f;   //  7 Grad in Karussel    (breite Balken 2-4)
 static const int   SF360_TIMEOUT_LOOPS = 150;           // Yellow needs 270° rotation — 60 loops was too short, 150 gives margin
 
 static const int   ROT_GELB_DRIVE_LOOPS  = 51;          // 1.02 s Vorwärtsfahrt für ROT/GELB zum richtigen Ablage-Slot
@@ -491,17 +483,7 @@ static bool runDeliverPhase()
     // Phase 3: D1 Jiggle — Puls-Breitenmodulation ±D1_JIGGLE_OFFSET mit D1_JIGGLE_PERIOD.
     if (m_deliver_phase == 3) {
         const float base    = extensionForColor(m_action_color);
-        float jig_off;
-        if (m_small_line_mode) {
-            jig_off = D1_JIGGLE_OFFSET_SMALL;
-        } else {
-            switch (m_line_count) {
-                case 1:  jig_off = D1_JIGGLE_OFFSET_BAR1;      break;
-                case 3:  jig_off = D1_JIGGLE_OFFSET_BAR3;      break;
-                case 4:  jig_off = D1_JIGGLE_OFFSET_LAST_WIDE; break;
-                default: jig_off = D1_JIGGLE_OFFSET;           break;
-            }
-        }
+        const float jig_off = m_small_line_mode ? D1_JIGGLE_OFFSET_SMALL : D1_JIGGLE_OFFSET;
         const int jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
         // Amplituden-Envelope: 0 -> max -> 0 ueber die Jiggle-Phase
         const int   ramp = (JIGGLE_RAMP_LOOPS < jig_end / 3) ? JIGGLE_RAMP_LOOPS : jig_end / 3;
@@ -527,9 +509,9 @@ static bool runDeliverPhase()
     if (m_deliver_phase == 4) {
         const int settle = m_small_line_mode ? 0 : WIDE_BAR_SETTLE_LOOPS;
         if (m_deliver_ctr == settle) {
-            g_servo_D2->setMaxAcceleration(1.0e6f);
+            g_servo_D2->setMaxAcceleration(D2_RAISE_ACCEL);
             g_servo_D2->setPulseWidth(D2_UP);
-            g_servo_D1->setMaxAcceleration(1.0e6f);
+            g_servo_D1->setMaxAcceleration(D1_RETRACT_ACCEL);
             g_servo_D1->setPulseWidth(D1_RETRACTED);
         }
         m_deliver_ctr++;
@@ -582,18 +564,13 @@ static void serviceTray()
                 static int s_jiggle_ctr = 0;
                 const int half = TRAY_JIGGLE_PERIOD / 2;
                 int p = s_jiggle_ctr % TRAY_JIGGLE_PERIOD;
-                float spd_pos, spd_neg;
-                if (m_small_line_mode) {
-                    spd_pos = TRAY_JIGGLE_SPEED_SMALL_CW;   // gegen Karussel
-                    spd_neg = TRAY_JIGGLE_SPEED_SMALL_CCW;  // in Karussel
-                } else {
-                    switch (m_line_count) {
-                        case 1:  spd_pos = TRAY_JIGGLE_SPEED_BAR1;          spd_neg = TRAY_JIGGLE_SPEED_BAR1_CCW;      break;
-                        case 3:  spd_pos = TRAY_JIGGLE_SPEED_BAR3;          spd_neg = TRAY_JIGGLE_SPEED_BAR3_CCW;      break;
-                        case 4:  spd_pos = TRAY_JIGGLE_SPEED_LAST_WIDE;     spd_neg = TRAY_JIGGLE_SPEED_LAST_WIDE_CCW; break;
-                        default: spd_pos = TRAY_JIGGLE_SPEED;               spd_neg = TRAY_JIGGLE_SPEED_CCW;           break;
-                    }
-                }
+                // 12 Grad gegen Karussel fuer alle; CCW variiert nach Balken/Schmallinie
+                const float spd_pos = TRAY_JIG_CW;
+                float spd_neg;
+                if (m_small_line_mode)
+                    spd_neg = (m_line_count == 8) ? TRAY_JIG_CW : TRAY_JIG_CCW_SMALL;
+                else
+                    spd_neg = (m_line_count == 1) ? TRAY_JIG_CW : TRAY_JIG_CCW_WIDE;
                 // Gleiche Amplituden-Envelope wie D1 (basiert auf m_deliver_ctr)
                 const int jig_end_t = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
                 const int ramp_t = (JIGGLE_RAMP_LOOPS < jig_end_t / 3) ? JIGGLE_RAMP_LOOPS : jig_end_t / 3;
