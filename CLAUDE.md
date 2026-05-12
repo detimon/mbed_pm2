@@ -1,20 +1,18 @@
 ﻿# mbed_pm — PES Board Roboter (Nucleo F446RE)
 
 ## Aktueller Stand
-_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-12)
-- **`cargosweep_team5_20260511.cpp` aktiv** — Weiterentwicklung von v05 für Team-Abgabe. `CARGOSWEEP_FINAL_VERSION_05` als Backup.
+_Wird am Ende jeder Session via `/sesh-end` aktualisiert._ (2026-05-12 Session 2)
+- **`cargosweep_team5_20260512.cpp` aktiv** — Saubere Kopie von 20260511, funktioniert sehr gut laut Benutzer. `cargosweep_team5_20260511.cpp` als Backup in `src/old_prototyping_files/`.
 - **PROJEKT ABGESCHLOSSEN** — Abgabe 23.05.2026.
-- **Session 2026-05-12: Umfangreiche Jiggle- und Arm-Verbesserungen in team5-Version:**
-  - **Phase 0 (neu):** Wartet auf Tray-Zielwinkel (±35°) vor D2-Abstieg. Timeout SF360_TIMEOUT_LOOPS=150. Verhindert Ablage bei falschem Winkel (Batterie-Problem).
-  - **Amplituden-Envelope:** Jiggle rampt 0→max→0 über Phase (JIGGLE_RAMP_LOOPS=18 Loops = 0.36s). Gilt für D1 und Tray synchron.
-  - **Asymmetrischer Tray-Jiggle:** Gegen Karussel immer 12° (TRAY_JIG_CW=0.38f). In Karussel: Balken 1=12° (sym), Balken 2-4=7° (TRAY_JIG_CCW_WIDE=0.22f), Schmallinien 1-3=6° (TRAY_JIG_CCW_SMALL=0.19f), Schmallinie 4=12° (sym). m_line_count 1-4=breite Balken, 5-8=Schmallinien; Schmallinie 4 = m_line_count==8.
-  - **D1 Jiggle vereinfacht:** Alle breiten Balken einheitlich 0.098f (12°). Schmallinien 0.057f (~7°).
-  - **Sanftes Runterfahren D2:** D2_SMALL_DESCENT_ACCEL=3.5f für alle Stops (war 4.0f).
-  - **Sanftes Hochfahren:** D1_RETRACT_ACCEL=5.0f, D2_RAISE_ACCEL=3.0f (war sofort 1e6f). RAISE_LOOPS=60 (war 50, +0.2s Puffer).
-  - **0.1s Settle-Pause** nach Jiggle vor Hochfahren bei breiten Balken (WIDE_BAR_SETTLE_LOOPS=5).
-  - **3s Startup-Delay** nach Button-Press (m_startup_delay=150).
-  - **360°-Servo:** kick=-0.40f, cruise=-0.30f. Richtung Karussel = negativer addSpeed.
-- **Aktuelle Konstanten (team5):** JIGGLE_LOOPS=65, JIGGLE_LOOPS_SMALL=25, D1_JIGGLE_OFFSET=0.098f, D1_JIGGLE_OFFSET_SMALL=0.057f, TRAY_JIG_CW=0.38f, TRAY_JIG_CCW_WIDE=0.22f, TRAY_JIG_CCW_SMALL=0.19f
+- **Session 2026-05-12 S2: Jiggle komplett neu aufgebaut + alle Parameter feinabgestimmt:**
+  - **Jiggle-Redesign (Kern-Fix):** `addSpeed()` gegen P-Regler funktionierte nicht — wird jetzt positionsbasiert via `moveToAngle(target ± offset_deg)` gesteuert. P-Regler fährt aktiv auf Jiggle-Position. Jiggle jetzt sichtbar und funktional.
+  - **Finale Jiggle-Winkel:** TRAY_JIG_CW_WIDE=17.5° (breite Balken 2-4 gegen Karussel), TRAY_JIG_SYM=10° (Balken 1 + Schmallinie 4 in Karussel), TRAY_JIG_CCW_WIDE=5° (breite Balken 2-4 in Karussel), TRAY_JIG_CW_SMALL=15° (Schmallinien gegen Karussel), TRAY_JIG_CCW_SMALL=5° (Schmallinien 1-3 in Karussel)
+  - **Finale Jiggle-Zeiten:** JIGGLE_LOOPS=100 (2.0s), JIGGLE_LOOPS_GRUEN=150 (3.0s — Magnet zieht GRÜN-Päcklein schlecht), JIGGLE_LOOPS_SMALL=75 (1.5s). Periode: TRAY/D1_JIGGLE_PERIOD=42 Loops = 0.84s/Zyklus.
+  - **D2-Tiefen Schmallinien:** D2_DOWN_BLAU_SMALL=0.27f, D2_DOWN_GRUEN_SMALL=0.12f (je +1-2mm flacher als breite Balken). D2_DOWN_ONLY_LOOPS=12 (breit), D2_DOWN_ONLY_LOOPS_SMALL=10 (schmal).
+  - **Datei-Cleanup:** src/ enthält nur noch 4 Dateien. Alle alten prototype/final-Files in `src/old_prototyping_files/`. Test-Files in `src/test_files/`.
+  - **Teamkommentar** am Anfang: Dragon Alexander + Fuchs André (Programmierung), Büchel Brian, Selg Simon, Burlacu Ioan, Aegler Timon (Teammitglieder).
+  - **software_export.md** erstellt: vollständige Dokumentation (14 Tests, Kalibrierungswerte, State Machine, Architektur, Jiggle-Parameter).
+- **Aktuelle Konstanten (team5_20260512):** JIGGLE_LOOPS=100, JIGGLE_LOOPS_GRUEN=150, JIGGLE_LOOPS_SMALL=75, D1_JIGGLE_OFFSET=0.098f, D1_JIGGLE_OFFSET_SMALL=0.057f, TRAY_JIG_CW_WIDE=17.5f, TRAY_JIG_CW_SMALL=15.0f, TRAY_JIG_SYM=10.0f, TRAY_JIG_CCW_WIDE=5.0f, TRAY_JIG_CCW_SMALL=5.0f
 - **Hue-Grenzen:** ROT 0°–15°, GELB 25°–50°, GRÜN 65°–125°, BLAU 210°–255°
 
 ## Stack
@@ -189,11 +187,10 @@ Modulares Test-Framework für einen zweimotorigen Differentialantrieb-Roboter. G
 - **Team:** 6 Personen — 3x Elektronik & Programmierung, 3x Mechanik (CAD)
 
 ## Nächste Schritte
-1. **team5-Version flashen und testen:** `pio run --target upload` (team5-File aktiv), alle 8 Stops durchfahren und prüfen ob asymmetrischer Jiggle + Envelope + Tray-Warte-Phase korrekt funktionieren. Falls Jiggle-Richtung vertauscht: TRAY_JIG_CW/CCW in `spd_pos`/`spd_neg` tauschen in `serviceTray()`.
+1. **Finalen Testlauf durchführen und flashen:** `pio run --target upload` — alle 8 Stops vollständig durchfahren, Jiggle bei allen Farben prüfen (besonders GRÜN 3s), Päckchen-Ablage kontrollieren. Falls ein Päcklein nicht fällt: JIGGLE_LOOPS für diese Farbe in `cargosweep_team5_20260512.cpp` Zeile 96/97/98 erhöhen.
 
 ## Offene Fragen
-- Ist die Karussel-Richtung im Jiggle korrekt zugewiesen? (positiver addSpeed = gegen Karussel — beim ersten Test prüfen, sonst in serviceTray() tauschen)
-- Reichen RAISE_LOOPS=60 für sanftes D1/D2-Hochfahren mit den neuen Accel-Werten?
+- Reichen die Jiggle-Zeiten für alle 8 Positionen zuverlässig? (GRÜN 3s, Rest 2s breit / 1.5s schmal) — beim Testlauf beobachten.
 
 ## Session-Routine
 Am Ende jeder Session:
