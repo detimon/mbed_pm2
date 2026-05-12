@@ -7,89 +7,89 @@
 
 #include "test_config.h"
 
-#if defined(TEST_SERVO)
-    #include "test_files/test_servo.h"
-    #define TEST_INIT(lps)    servo_init(lps)
-    #define TEST_TASK(led)    servo_task(led)
-    #define TEST_RESET(led)   servo_reset(led)
-    #define TEST_PRINT()      servo_print()
+#if defined(TEST_SERVO_180)
+    #include "../test/test_servo_180.h"
+    #define TEST_INIT(lps)    servo_180_init(lps)
+    #define TEST_TASK(led)    servo_180_task(led)
+    #define TEST_RESET(led)   servo_180_reset(led)
+    #define TEST_PRINT()      servo_180_print()
 
-#elif defined(TEST_COLOR_SENSOR)
-    #include "test_files/test_color_sensor.h"
-    #define TEST_INIT(lps)    color_sensor_init(lps)
-    #define TEST_TASK(led)    color_sensor_task(led)
-    #define TEST_RESET(led)   color_sensor_reset(led)
-    #define TEST_PRINT()      color_sensor_print()
+#elif defined(TEST_COLOR_DETECT)
+    #include "../test/test_color_detect.h"
+    #define TEST_INIT(lps)    color_detect_init(lps)
+    #define TEST_TASK(led)    color_detect_task(led)
+    #define TEST_RESET(led)   color_detect_reset(led)
+    #define TEST_PRINT()      color_detect_print()
 
-#elif defined(TEST_COLOR_SENSOR_CALIB)
-    #include "test_files/test_color_sensor_calib.h"
-    #define TEST_INIT(lps)    color_sensor_calib_init(lps)
-    #define TEST_TASK(led)    color_sensor_calib_task(led)
-    #define TEST_RESET(led)   color_sensor_calib_reset(led)
-    #define TEST_PRINT()      color_sensor_calib_print()
+#elif defined(CALIB_COLOR_HUE)
+    #include "../calibration/calib_color_hue.h"
+    #define TEST_INIT(lps)    calib_color_hue_init(lps)
+    #define TEST_TASK(led)    calib_color_hue_task(led)
+    #define TEST_RESET(led)   calib_color_hue_reset(led)
+    #define TEST_PRINT()      calib_color_hue_print()
 
-#elif defined(TEST_LINE_FOLLOWER)
-    #include "test_files/test_line_follower.h"
-    #define TEST_INIT(lps)  line_follower_init(lps)
-    #define TEST_TASK(led)  line_follower_task(led)
-    #define TEST_RESET(led) line_follower_reset(led)
-    #define TEST_PRINT()    line_follower_print()
+#elif defined(TEST_LINEFOLLOWER)
+    #include "../test/test_linefollower.h"
+    #define TEST_INIT(lps)  linefollower_init(lps)
+    #define TEST_TASK(led)  linefollower_task(led)
+    #define TEST_RESET(led) linefollower_reset(led)
+    #define TEST_PRINT()    linefollower_print()
 
-#elif defined(TEST_LINE_FOLLOWER_SLOW)
-    #include "test_files/test_line_follower_SLOW.h"
-    #define TEST_INIT(lps)  line_follower_slow_init(lps)
-    #define TEST_TASK(led)  line_follower_slow_task(led)
-    #define TEST_RESET(led) line_follower_slow_reset(led)
-    #define TEST_PRINT()    line_follower_slow_print()
+#elif defined(TEST_LINEFOLLOWER_SLOW)
+    #include "../test/test_linefollower_slow.h"
+    #define TEST_INIT(lps)  linefollower_slow_init(lps)
+    #define TEST_TASK(led)  linefollower_slow_task(led)
+    #define TEST_RESET(led) linefollower_slow_reset(led)
+    #define TEST_PRINT()    linefollower_slow_print()
 
-#elif defined(TEST_LINE_FOLLOWER_FAST)
-    #include "test_files/test_line_follower_FAST.h"
-    #define TEST_INIT(lps)  line_follower_fast_init(lps)
-    #define TEST_TASK(led)  line_follower_fast_task(led)
-    #define TEST_RESET(led) line_follower_fast_reset(led)
-    #define TEST_PRINT()    line_follower_fast_print()
+#elif defined(TEST_LINEFOLLOWER_FAST)
+    #include "../test/test_linefollower_fast.h"
+    #define TEST_INIT(lps)  linefollower_fast_init(lps)
+    #define TEST_TASK(led)  linefollower_fast_task(led)
+    #define TEST_RESET(led) linefollower_fast_reset(led)
+    #define TEST_PRINT()    linefollower_fast_print()
 
-#elif defined(TEST_SERVO_ALL)
-    #include "test_files/test_servo_all.h"
-    #define TEST_INIT(lps)    servo_all_init(lps)
-    #define TEST_TASK(led)    servo_all_task(led)
-    #define TEST_RESET(led)   servo_all_reset(led)
-    #define TEST_PRINT()      servo_all_print()
+#elif defined(TEST_SERVO_COMBINED)
+    #include "../test/test_servo_combined.h"
+    #define TEST_INIT(lps)    servo_combined_init(lps)
+    #define TEST_TASK(led)    servo_combined_task(led)
+    #define TEST_RESET(led)   servo_combined_reset(led)
+    #define TEST_PRINT()      servo_combined_print()
 
-#elif defined(TEST_SERVO_CALIB)
-    #include "test_files/test_servo_calib.h"
-    #define TEST_INIT(lps)    servo_calib_init(lps)
-    #define TEST_TASK(led)    servo_calib_task(led)
-    #define TEST_RESET(led)   servo_calib_reset(led)
-    #define TEST_PRINT()      servo_calib_print()
+#elif defined(CALIB_SERVO_180)
+    #include "../calibration/calib_servo_180.h"
+    #define TEST_INIT(lps)    calib_servo_180_init(lps)
+    #define TEST_TASK(led)    calib_servo_180_task(led)
+    #define TEST_RESET(led)   calib_servo_180_reset(led)
+    #define TEST_PRINT()      calib_servo_180_print()
 
-#elif defined(TEST_IR)
-    #include "test_files/test_ir.h"
-    #define TEST_INIT(lps)    ir_init(lps)
-    #define TEST_TASK(led)    ir_task(led)
-    #define TEST_RESET(led)   ir_reset(led)
-    #define TEST_PRINT()      ir_print()
+#elif defined(TEST_IR_SENSOR)
+    #include "../test/test_ir_sensor.h"
+    #define TEST_INIT(lps)    ir_sensor_init(lps)
+    #define TEST_TASK(led)    ir_sensor_task(led)
+    #define TEST_RESET(led)   ir_sensor_reset(led)
+    #define TEST_PRINT()      ir_sensor_print()
 
-#elif defined(TEST_DC_MOTOR)
-    #include "test_files/test_dc_motor.h"
-    #define TEST_INIT(lps)    dc_motor_init(lps)
-    #define TEST_TASK(led)    dc_motor_task(led)
-    #define TEST_RESET(led)   dc_motor_reset(led)
-    #define TEST_PRINT()      dc_motor_print()
+#elif defined(TEST_MOTOR_DRIVE)
+    #include "../test/test_motor_drive.h"
+    #define TEST_INIT(lps)    motor_drive_init(lps)
+    #define TEST_TASK(led)    motor_drive_task(led)
+    #define TEST_RESET(led)   motor_drive_reset(led)
+    #define TEST_PRINT()      motor_drive_print()
 
-#elif defined(TEST_ALL)
-    #include "test_files/test_all.h"
-    #define TEST_INIT(lps)    all_init(lps)
-    #define TEST_TASK(led)    all_task(led)
-    #define TEST_RESET(led)   all_reset(led)
-    #define TEST_PRINT()      all_print()
+#elif defined(TEST_SYSTEM_ALL)
+    #include "../test/test_system_all.h"
+    #define TEST_INIT(lps)    system_all_init(lps)
+    #define TEST_TASK(led)    system_all_task(led)
+    #define TEST_RESET(led)   system_all_reset(led)
+    #define TEST_PRINT()      system_all_print()
 
-#elif defined(TEST_LINE_FOLLOWER_BACKWARD)
-    #include "test_files/test_line_follower_BACKWARD.h"
-    #define TEST_INIT(lps)    line_follower_backward_init(lps)
-    #define TEST_TASK(led)    line_follower_backward_task(led)
-    #define TEST_RESET(led)   line_follower_backward_reset(led)
-    #define TEST_PRINT()      line_follower_backward_print()
+#elif defined(TEST_LINEFOLLOWER_BWD)
+    #include "../test/test_linefollower_bwd.h"
+    #define TEST_INIT(lps)    linefollower_bwd_init(lps)
+    #define TEST_TASK(led)    linefollower_bwd_task(led)
+    #define TEST_RESET(led)   linefollower_bwd_reset(led)
+    #define TEST_PRINT()      linefollower_bwd_print()
 
 #elif defined(PROTOTYPE_01_V1)
     #include "prototype01_v1.h"
@@ -391,12 +391,12 @@
     #define TEST_RESET(led)   cargosweep_team5_20260512_reset(led)
     #define TEST_PRINT()      cargosweep_team5_20260512_print()
 
-#elif defined(TEST_LOGIC_ARM_STANDARD)
-    #include "test_files/test_logic_arm_standard.h"
-    #define TEST_INIT(lps)    logic_arm_standard_init(lps)
-    #define TEST_TASK(led)    logic_arm_standard_task(led)
-    #define TEST_RESET(led)   logic_arm_standard_reset(led)
-    #define TEST_PRINT()      logic_arm_standard_print()
+#elif defined(TEST_ARM_LOGIC)
+    #include "../test/test_arm_logic.h"
+    #define TEST_INIT(lps)    arm_logic_init(lps)
+    #define TEST_TASK(led)    arm_logic_task(led)
+    #define TEST_RESET(led)   arm_logic_reset(led)
+    #define TEST_PRINT()      arm_logic_print()
 
 #elif defined(TEST_ARM_SEQUENCE)
     // Single-File-Test: Forward-Deklarationen (kein .h)
@@ -409,12 +409,12 @@
     #define TEST_RESET(led)   test_arm_sequence_reset(led)
     #define TEST_PRINT()      test_arm_sequence_print()
 
-#elif defined(TEST_DREHSERVO_90)
-    #include "test_files/test_drehservo_90.h"
-    #define TEST_INIT(lps)    drehservo_90_init(lps)
-    #define TEST_TASK(led)    drehservo_90_task(led)
-    #define TEST_RESET(led)   drehservo_90_reset(led)
-    #define TEST_PRINT()      drehservo_90_print()
+#elif defined(TEST_SERVO_180_ANGLE)
+    #include "../test/test_servo_180_angle.h"
+    #define TEST_INIT(lps)    servo_180_angle_init(lps)
+    #define TEST_TASK(led)    servo_180_angle_task(led)
+    #define TEST_RESET(led)   servo_180_angle_reset(led)
+    #define TEST_PRINT()      servo_180_angle_print()
 
 #elif defined(TEST_ENDSCHALTER)
     #include "test_files/test_endschalter.h"
@@ -423,33 +423,33 @@
     #define TEST_RESET(led)   endschalter_reset(led)
     #define TEST_PRINT()      endschalter_print()
 
-#elif defined(TEST_PARALLAX_360)
-    #include "test_files/test_parallax_360.h"
-    #define TEST_INIT(lps)    parallax_360_init(lps)
-    #define TEST_TASK(led)    parallax_360_task(led)
-    #define TEST_RESET(led)   parallax_360_reset(led)
-    #define TEST_PRINT()      parallax_360_print()
+#elif defined(CALIB_SERVO_360)
+    #include "../calibration/calib_servo_360.h"
+    #define TEST_INIT(lps)    calib_servo_360_init(lps)
+    #define TEST_TASK(led)    calib_servo_360_task(led)
+    #define TEST_RESET(led)   calib_servo_360_reset(led)
+    #define TEST_PRINT()      calib_servo_360_print()
 
-#elif defined(TEST_NEOPIXEL)
-    #include "test_files/test_neopixel.h"
-    #define TEST_INIT(lps)    neopixel_init(lps)
-    #define TEST_TASK(led)    neopixel_task(led)
-    #define TEST_RESET(led)   neopixel_reset(led)
-    #define TEST_PRINT()      neopixel_print()
+#elif defined(TEST_NEOPIXEL_BASIC)
+    #include "../test/test_neopixel_basic.h"
+    #define TEST_INIT(lps)    neopixel_basic_init(lps)
+    #define TEST_TASK(led)    neopixel_basic_task(led)
+    #define TEST_RESET(led)   neopixel_basic_reset(led)
+    #define TEST_PRINT()      neopixel_basic_print()
 
-#elif defined(TEST_COLOR_NEOPIXEL)
-    #include "test_files/test_color_neopixel.h"
-    #define TEST_INIT(lps)    color_neopixel_init(lps)
-    #define TEST_TASK(led)    color_neopixel_task(led)
-    #define TEST_RESET(led)   color_neopixel_reset(led)
-    #define TEST_PRINT()      color_neopixel_print()
+#elif defined(TEST_NEOPIXEL_COLOR)
+    #include "../test/test_neopixel_color.h"
+    #define TEST_INIT(lps)    neopixel_color_init(lps)
+    #define TEST_TASK(led)    neopixel_color_task(led)
+    #define TEST_RESET(led)   neopixel_color_reset(led)
+    #define TEST_PRINT()      neopixel_color_print()
 
 #else
     #error "No test selected. Open test_config.h and uncomment one #define."
 #endif
 // ================================================
 
-#ifdef TEST_COLOR_NEOPIXEL
+#ifdef TEST_NEOPIXEL_COLOR
 bool do_execute_main_task = true;   // Sensor-Tests laufen direkt ohne Button
 #else
 bool do_execute_main_task = false;
