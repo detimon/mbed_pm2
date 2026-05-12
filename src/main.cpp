@@ -4,7 +4,7 @@
 #include "DebounceIn.h"
 
 // === SELECT ACTIVE TEST (edit test_config.h) ===
-// eierläcke
+
 #include "test_config.h"
 
 #if defined(TEST_SERVO_180)

@@ -6,7 +6,7 @@
 // --- CargoSweep (Hauptprogramm) ---
 
 #define CARGOSWEEP_TEAM5_20260512
-//eier läcke
+
 
 // --- CargoSweep (alte Versionen vom Prototypen) ---
 
