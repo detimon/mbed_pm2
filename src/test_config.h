@@ -45,7 +45,8 @@
 // #define CARGOSWEEP_FINAL_VERSION_03
 // #define CARGOSWEEP_FINAL_VERSION_04
 // #define CARGOSWEEP_FINAL_VERSION_05
-#define CARGOSWEEP_TEAM5_20260511
+// #define CARGOSWEEP_TEAM5_20260511
+#define CARGOSWEEP_TEAM5_20260512
 
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
