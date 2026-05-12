@@ -506,6 +506,7 @@ void toggle_do_execute_main_fcn()
     // Zusätzlicher Software-Guard gegen Bouncing beim Loslassen:
     // DebounceIn filtert nur 20ms beim Drücken; beim Release entstehen
     // weitere falling-edges, die sonst ein zweites Toggle auslösen würden.
+    
     if (button_guard_timer.elapsed_time() < 200ms) return;
     button_guard_timer.reset();
 

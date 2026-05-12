@@ -1,7 +1,12 @@
-﻿// CargoSweep — Team 5 | 2026-05-12
+// CargoSweep — Team 5 | 2026-05-12
+//
+// Team 5 — ZHAW PM2, 2. Semester 2026
+//   Programmierung:  Dragon Alexander, Fuchs André
+//   Teammitglieder:  Büchel Brian, Selg Simon, Burlacu Ioan, Aegler Timon
+//
 // Refactored from cargosweep_team5_20260511.cpp
-// Cleanup: toter Code entfernt (applyJiggleTick, advanceTray, tote Variablen/Konstanten),
-//          s_jiggle_ctr static-Reset-Bug behoben (ersetzt durch m_deliver_ctr).
+
+
 #include "test_config.h"
 
 #ifdef CARGOSWEEP_TEAM5_20260512
@@ -57,8 +62,8 @@ static const int BACKWARD_LOOPS       = 222;            // 4.44 s Rückwärtsfah
 static const int ACCEL_LOOPS          = 12;             // 0.24 s Anlauframpe in STATE_APPROACH
 static const int RESTART_ACCEL_LOOPS  = 50;             // 1 s Anlauframpe nach jedem Stopp
 static const int REAL_APPROACH_GUARD  = 20;             // Ignore bars until robot has physically cleared the start bar
-static const int STOP_GUARD           = static_cast<int>(75  * SPEED_SCALE);  // 1.5 s Sperre nach Querbalken
-static const int START_GUARD          = static_cast<int>(300 * SPEED_SCALE);  // 6 s Sperre beim ersten Einlauf
+static const int STOP_GUARD           = static_cast<int>(75  * SPEED_SCALE);  // ~0.92 s Sperre nach Querbalken (bei MAX_SPEED=1.6)
+static const int START_GUARD          = static_cast<int>(300 * SPEED_SCALE);  // ~3.74 s Sperre beim ersten Einlauf (bei MAX_SPEED=1.6)
 static const int SLOWDOWN_LOOPS       = 13;             // 0.26 s Bremsrampe bei Farberkennung
 static const float SLOW_FACTOR        = 0.2f;           // Reduktion auf 20% Geschwindigkeit beim Abbremsen
 static const int COLOR_READ_DELAY     = 50;             // 1 s Sperrzeit nach Stopp gegen Phantomfarben
@@ -70,7 +75,7 @@ static const int COLOR_STOP_STABLE_CNT = 1;             // 1 stabile Messung gen
 // ===========================================================================
 static const int   CROSSING_STOP_LOOPS   = 250;         // 5 s reading window — allows tray to rotate up to 270°
 static const int   SMALL_FOLLOW_START_GUARD   = static_cast<int>(781 * SPEED_SCALE);  // 9.8 s Sperre nach 4. Balken
-static const int   SMALL_REENTRY_GUARD        = static_cast<int>(100 * SPEED_SCALE);  // 2 s Sperre gegen Farbkarten-Stopp
+static const int   SMALL_REENTRY_GUARD        = static_cast<int>(100 * SPEED_SCALE);  // ~1.24 s Sperre gegen Farbkarten-Stopp (bei MAX_SPEED=1.6)
 static const int   SMALL_CROSSING_STOP_LOOPS  = 100;    // 2 s Lesefenster bei schmalen Linien
 
 // 180° Servo-Positionen (normierter Puls 0.0–1.0)
@@ -83,15 +88,19 @@ static const float D1_EXTENDED_BLAU   = 0.87f;          // ~7 mm extra extension
 static const float D2_UP              = 1.0f;           // D2 vollständig eingefahren (Transportposition)
 static const float D2_DOWN_BLAU       = 0.25f;          // D2 Ablegetiefe für BLAU- und GELB-Behälter
 static const float D2_DOWN_GRUEN      = 0.10f;          // D2 Ablegetiefe für GRÜN- und ROT-Behälter (flacher als BLAU)
+static const float D2_DOWN_BLAU_SMALL  = 0.27f;          // D2 Ablegetiefe Schmallinien BLAU/GELB
+static const float D2_DOWN_GRUEN_SMALL = 0.12f;          // D2 Ablegetiefe Schmallinien GRÜN/ROT
 static const float D2_SMALL_DESCENT_ACCEL = 3.5f;        // Sanfte D2-Absenkung bei allen Stops
 
 // ===========================================================================
 // Ablage-Sequenz Timing
 // ===========================================================================
 static const int   PICKUP_PAUSE_LOOPS  = 50;            // 1 s Pause nach D1-Ausfahren — Tray stabilisiert sich
-static const int   D2_DOWN_ONLY_LOOPS  = 12;            // 0.24 s D2-only drop before D1 extends — prevents collision while swinging out
-static const int   JIGGLE_LOOPS        = 70;            // 1.4 s jiggle duration (alle breiten Balken)
-static const int   JIGGLE_LOOPS_SMALL   = 30;            // 0.6 s jiggle fuer Schmallinien
+static const int   D2_DOWN_ONLY_LOOPS  = 12;            // 0.24 s D2-only drop (breite Balken)
+static const int   D2_DOWN_ONLY_LOOPS_SMALL = 10;       // 0.20 s D2-only drop (Schmallinien)
+static const int   JIGGLE_LOOPS        = 100;           // 2.0 s jiggle duration (alle breiten Balken)
+static const int   JIGGLE_LOOPS_GRUEN  = 150;           // 3.0 s jiggle (GRUEN breite Balken) — Magnet zieht das GRUEN-Paeckechen schlecht, braucht mehr Vibrationszeit zum Ablösen
+static const int   JIGGLE_LOOPS_SMALL   = 75;            // 1.5 s jiggle fuer Schmallinien
 static const int   JIGGLE_RAMP_LOOPS    = 18;            // 0.36 s Auf-/Abrampe der Jiggle-Amplitude (smoother)
 static const int   RAISE_LOOPS         = 60;            // 1.2 s zum Hochfahren (mehr Zeit fuer sanfte Beschleunigung)
 static const int   WIDE_BAR_SETTLE_LOOPS = 5;             // 0.1 s Pause nach Jiggle vor Hochfahren (nur breite Balken)
@@ -99,13 +108,14 @@ static const float D1_RETRACT_ACCEL    = 5.0f;           // Sanftes Einziehen D1
 static const float D2_RAISE_ACCEL      = 3.0f;           // Sanftes Hochfahren D2 nach Ablage
 static const float D1_JIGGLE_OFFSET           = 0.098f;  // D1 Amplitude alle breiten Balken (12 Grad)
 static const float D1_JIGGLE_OFFSET_SMALL     = 0.057f;   // D1 Amplitude Schmallinien (~7 Grad)
-static const int   D1_JIGGLE_PERIOD   = 30;             // D1 oscillation period: one full cycle every 0.6 s (30 loops)
-static const int   TRAY_JIGGLE_PERIOD = 30;             // Tray oscillation period: one full cycle every 0.6 s
-static const float TRAY_JIG_CW                = 0.507f;  // 16 Grad gegen Karussel (alle Stops)
-static const float TRAY_JIG_SYM               = 0.38f;   // 12 Grad in Karussel    (Balken 1 + Schmallinie 4, symmetrisch)
-static const float TRAY_JIG_CCW_SMALL          = 0.19f;   //  6 Grad in Karussel    (Schmallinien 1-3)
-static const float TRAY_JIG_CCW_WIDE           = 0.22f;   //  7 Grad in Karussel    (breite Balken 2-4)
-static const int   SF360_TIMEOUT_LOOPS = 150;           // Yellow needs 270° rotation — 60 loops was too short, 150 gives margin
+static const int   D1_JIGGLE_PERIOD   = 42;             // D1 oscillation period: one full cycle every 0.84 s (42 loops)
+static const int   TRAY_JIGGLE_PERIOD  = 42;            // Jiggle-Periode: ein Zyklus alle 0.84 s (42 Loops)
+static const float TRAY_JIG_CW_WIDE    = 17.5f;         // Grad gegen Karussel -- breite Balken
+static const float TRAY_JIG_CW_SMALL   = 15.0f;         // Grad gegen Karussel -- Schmallinien
+static const float TRAY_JIG_SYM        = 10.0f;         // Grad in Karussel    -- Balken 1 + Schmallinie 4 (symmetrisch)
+static const float TRAY_JIG_CCW_SMALL  =  5.0f;         // Grad in Karussel    -- Schmallinien 1-3
+static const float TRAY_JIG_CCW_WIDE   =  5.0f;         // Grad in Karussel    -- breite Balken 2-4
+static const int   SF360_TIMEOUT_LOOPS = 225;           // 4.5 s Timeout — Puffer falls 360°-Servo stockt (GELB braucht 270° Rotation)
 
 static const int   ROT_GELB_DRIVE_LOOPS  = 51;          // 1.02 s Vorwärtsfahrt für ROT/GELB zum richtigen Ablage-Slot
 static const int   ROT_GELB_ACCEL_LOOPS  = 10;          // 0.2 s Anlauframpe für ROT/GELB Fahrt
@@ -194,7 +204,7 @@ static int   m_tray_wait_ctr       = 0;     // Wartezeit auf Tray-Positionierung
 static int   m_approach_ctr        = 0;
 static int   m_small_accel_ctr     = 0;
 static int   m_real_accel_ctr      = 0;
-static int   m_deliver_phase       = 0;     // Aktuelle Phase in runDeliverPhase (0–3)
+static int   m_deliver_phase       = 0;     // Aktuelle Phase in runDeliverPhase (0–4)
 static int   m_deliver_ctr         = 0;     // Loop-Zähler innerhalb der aktuellen Phase
 static int   m_forward_ctr         = 0;     // ROT/GELB Vorwärtsfahrt-Zähler
 static bool  m_reversing           = false; // ROT/GELB Rückfahrt nach letztem Balken aktiv
@@ -285,11 +295,11 @@ static bool small_line_active()
 // Farb- und Servo-Hilfsfunktionen
 // ===========================================================================
 
-// Gibt die Ablagetiefe von D2 zurück (BLAU und GELB identisch, GRÜN flacher).
-static float depthForColor(int c)
+// Gibt die Ablagetiefe von D2 zurück. Bei small_line=true werden flachere Werte (BLAU_SMALL/GRUEN_SMALL) verwendet.
+static float depthForColor(int c, bool small_line = false)
 {
-    if (c == 7 || c == 4) return D2_DOWN_BLAU;
-    return D2_DOWN_GRUEN;
+    if (small_line) return (c == 7 || c == 4) ? D2_DOWN_BLAU_SMALL : D2_DOWN_GRUEN_SMALL;
+    return (c == 7 || c == 4) ? D2_DOWN_BLAU : D2_DOWN_GRUEN;
 }
 
 // Gibt true wenn der Tray innerhalb von tol Grad am Ziel ist (Kurzweg-Fehler).
@@ -421,9 +431,9 @@ static void trayStop()
 // Gibt true zurück wenn die Sequenz vollständig abgeschlossen ist.
 //
 //   Phase 0: Warten bis Tray Zielwinkel erreicht (SF360_TIMEOUT_LOOPS als Sicherheitsnetz)
-//   Phase 1: D2 absenken (D2_DOWN_ONLY_LOOPS = 0.24 s) — D1 noch eingefahren
+//   Phase 1: D2 absenken (breite: 0.24 s / schmal: 0.20 s) — D1 noch eingefahren
 //   Phase 2: D1 ausfahren + Tray auf Zielwinkel (PICKUP_PAUSE_LOOPS = 1 s)
-//   Phase 3: D1 Jiggle (JIGGLE_LOOPS = 1.4 s) — Paket durch Vibration ablösen
+//   Phase 3: D1 Jiggle (breite: 2.0 s, GRUEN: 3.0 s, schmal: 1.5 s) — Paket durch Vibration ablösen
 //   Phase 4: 0.1 s Settle-Pause (breite Balken) + D2/D1 hochfahren → true
 // ===========================================================================
 static bool runDeliverPhase()
@@ -440,10 +450,11 @@ static bool runDeliverPhase()
     if (m_deliver_phase == 1) {
         if (m_deliver_ctr == 0) {
             g_servo_D2->setMaxAcceleration(D2_SMALL_DESCENT_ACCEL);
-            g_servo_D2->enable(depthForColor(m_action_color));
+            g_servo_D2->enable(depthForColor(m_action_color, m_small_line_mode));
         }
         m_deliver_ctr++;
-        if (m_deliver_ctr >= D2_DOWN_ONLY_LOOPS) { m_deliver_phase = 2; m_deliver_ctr = 0; }
+        const int d2_loops = m_small_line_mode ? D2_DOWN_ONLY_LOOPS_SMALL : D2_DOWN_ONLY_LOOPS;
+        if (m_deliver_ctr >= d2_loops) { m_deliver_phase = 2; m_deliver_ctr = 0; }
         return false;
     }
     // Phase 2: D1 raus + Tray auf Zielwinkel korrigieren.
@@ -460,7 +471,7 @@ static bool runDeliverPhase()
     if (m_deliver_phase == 3) {
         const float base    = extensionForColor(m_action_color);
         const float jig_off = m_small_line_mode ? D1_JIGGLE_OFFSET_SMALL : D1_JIGGLE_OFFSET;
-        const int jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
+        const int jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : (m_action_color == 5 ? JIGGLE_LOOPS_GRUEN : JIGGLE_LOOPS);
         // Amplituden-Envelope: 0 -> max -> 0 ueber die Jiggle-Phase
         const int   ramp = (JIGGLE_RAMP_LOOPS < jig_end / 3) ? JIGGLE_RAMP_LOOPS : jig_end / 3;
         float       t;
@@ -504,11 +515,11 @@ static bool runDeliverPhase()
 // serviceTray()
 //
 // Wird jede Loop aufgerufen. Steuert den 360°-Servo je nach Zustand:
-//   - In Ablage-States (RED/GREEN/BLUE/YELLOW): P-Regler auf m_target_angle.
-//     In Phase 3 (Jiggle): addSpeed() mit Square-Wave überschreibt P-Regler.
-//     Ausserhalb des Ziel-Fensters: Kick-Impuls für Anlaufdrehmoment.
-//   - In Navigations-States: langsame CCW-Drehung (-0.30) mit Kick (-0.40) bei
-//     Winkeländerung. Ermöglicht Pre-Adjust während Fahrt.
+//   - In Ablage-States (RED/GREEN/BLUE/YELLOW):
+//     Phase 3 (Jiggle): moveToAngle(target ± offset_deg) — P-Regler fährt aktiv
+//       auf die Jiggle-Position. Gegen Karussel: TRAY_JIG_CW_*, in Karussel: TRAY_JIG_CCW_*.
+//     Alle anderen Phasen: P-Regler auf m_target_angle. Ausserhalb Fenster: Kick.
+//   - In Navigations-States: langsame CCW-Drehung (-0.30) mit Kick (-0.40).
 // ===========================================================================
 static void serviceTray()
 {
@@ -526,44 +537,41 @@ static void serviceTray()
                          m_state == STATE_BLUE   || m_state == STATE_YELLOW);
 
     if (in_arm_state) {
-        g_servoTray->moveToAngle(m_target_angle);
-        g_servoTray->update();
-
-        // Ziel-Fenster: CCW-Restdrehung ≤35° oder ≥185° (Tray fast am Ziel)
-        float ccw_dist = fmodf(g_servoTray->getCurrentAngle() - m_target_angle + 360.0f,
-                               360.0f);
-        bool in_window = (ccw_dist <= 35.0f) || (ccw_dist >= 185.0f);
-
-        if (in_window) {
-            if (m_deliver_phase == 3) {
-                // Tray-Jiggle: Square-Wave überschreibt P-Regler.
-                // Phasenlage via m_deliver_ctr (gleicher Zähler wie D1-Jiggle) — kein separater static-Counter.
-                const int half = TRAY_JIGGLE_PERIOD / 2;
-                int p = m_deliver_ctr % TRAY_JIGGLE_PERIOD;
-                // 12 Grad gegen Karussel fuer alle; CCW variiert nach Balken/Schmallinie
-                const float spd_pos = TRAY_JIG_CW;
-                float spd_neg;
-                if (m_small_line_mode)
-                    spd_neg = (m_line_count == 8) ? TRAY_JIG_SYM : TRAY_JIG_CCW_SMALL;
-                else
-                    spd_neg = (m_line_count == 1) ? TRAY_JIG_SYM : TRAY_JIG_CCW_WIDE;
-                // Gleiche Amplituden-Envelope wie D1 (basiert auf m_deliver_ctr)
-                const int jig_end_t = m_small_line_mode ? JIGGLE_LOOPS_SMALL : JIGGLE_LOOPS;
-                const int ramp_t = (JIGGLE_RAMP_LOOPS < jig_end_t / 3) ? JIGGLE_RAMP_LOOPS : jig_end_t / 3;
-                float t2;
-                if      (m_deliver_ctr < ramp_t)                t2 = (float)(m_deliver_ctr + 1) / ramp_t;
-                else if (m_deliver_ctr >= jig_end_t - ramp_t)  t2 = (float)(jig_end_t - m_deliver_ctr) / ramp_t;
-                else                                            t2 = 1.0f;
-                if (t2 < 0.0f) t2 = 0.0f;
-                float jiggle = (p < half) ? +spd_pos * t2 : -spd_neg * t2;
-                g_servoTray->addSpeed(jiggle);
-            }
+        if (m_deliver_phase == 3) {
+            // Positions-basierter Jiggle: P-Regler fährt aktiv auf target ± offset.
+            // Gegen Karussel und in Karussel je nach Balken-Typ und Zählstand.
+            const float cw_deg = m_small_line_mode ? TRAY_JIG_CW_SMALL : TRAY_JIG_CW_WIDE;
+            float ccw_deg;
+            if (m_small_line_mode)
+                ccw_deg = (m_line_count == 8) ? TRAY_JIG_SYM : TRAY_JIG_CCW_SMALL;
+            else
+                ccw_deg = (m_line_count == 1) ? TRAY_JIG_SYM : TRAY_JIG_CCW_WIDE;
+            // Amplituden-Envelope: 0 -> max -> 0 (gleich wie D1)
+            const int jig_end = m_small_line_mode ? JIGGLE_LOOPS_SMALL : (m_action_color == 5 ? JIGGLE_LOOPS_GRUEN : JIGGLE_LOOPS);
+            const int ramp = (JIGGLE_RAMP_LOOPS < jig_end / 3) ? JIGGLE_RAMP_LOOPS : jig_end / 3;
+            float t;
+            if      (m_deliver_ctr < ramp)            t = (float)(m_deliver_ctr + 1) / ramp;
+            else if (m_deliver_ctr >= jig_end - ramp) t = (float)(jig_end - m_deliver_ctr) / ramp;
+            else                                      t = 1.0f;
+            if (t < 0.0f) t = 0.0f;
+            const int half = TRAY_JIGGLE_PERIOD / 2;
+            int p = m_deliver_ctr % TRAY_JIGGLE_PERIOD;
+            float offset_deg = (p < half) ? +cw_deg * t : -ccw_deg * t;
+            g_servoTray->moveToAngle(m_target_angle + offset_deg);
+            g_servoTray->update();
         } else {
-            // Ausserhalb Fenster: Servo stoppen + Kick-Geschwindigkeit addieren
-            g_servoTray->stop();
-            float speed = (m_kick_ctr > 0) ? -0.40f : -0.30f;
-            if (m_kick_ctr > 0) m_kick_ctr--;
-            g_servoTray->addSpeed(speed);
+            // Alle anderen Phasen: P-Regler auf Zielwinkel, Kick wenn weit entfernt
+            g_servoTray->moveToAngle(m_target_angle);
+            g_servoTray->update();
+            float ccw_dist = fmodf(g_servoTray->getCurrentAngle() - m_target_angle + 360.0f,
+                                   360.0f);
+            bool in_window = (ccw_dist <= 35.0f) || (ccw_dist >= 185.0f);
+            if (!in_window) {
+                g_servoTray->stop();
+                float speed = (m_kick_ctr > 0) ? -0.40f : -0.30f;
+                if (m_kick_ctr > 0) m_kick_ctr--;
+                g_servoTray->addSpeed(speed);
+            }
         }
     } else {
         // Navigation: langsame CCW-Drehung zum Vorausrichten, Kick bei neuem Ziel

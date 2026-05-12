@@ -1,9 +1,14 @@
 #pragma once
 
-// CargoSweep — Test-Konfiguration
+// CargoSweep — Konfiguration
 // ==========================================
 
 // --- CargoSweep (Hauptprogramm) ---
+
+#define CARGOSWEEP_TEAM5_20260512
+
+// --- CargoSweep (alte Versionen vom Prototypen) ---
+
 // #define PROTOTYPE_01_V1
 // #define PROTOTYPE_01_V2
 // #define PROTOTYPE_01_V3
@@ -46,7 +51,9 @@
 // #define CARGOSWEEP_FINAL_VERSION_04
 // #define CARGOSWEEP_FINAL_VERSION_05
 // #define CARGOSWEEP_TEAM5_20260511
-#define CARGOSWEEP_TEAM5_20260512
+
+
+
 
 
 // --- Farbsensor (wichtig für Kalibrierung) ---
